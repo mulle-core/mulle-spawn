@@ -1,0 +1,9 @@
+mulle-core/c-developer;meta
+mulle-core/c;runtime
+mulle-sde/c;runtime
+mulle-sde/sde;extra
+mulle-c/c-cmake;buildtool
+mulle-sde/c-cmake;buildtool
+mulle-sde/cmake;buildtool
+mulle-c/c-demo;extra
+mulle-sde/sublime-text;extra

@@ -1,0 +1,59 @@
+ok   self path: found
+ok   self path: names this program
+ok   echo: run returns 0
+ok   echo: exited
+ok   echo: exit code 0
+ok   echo: captured stdout
+     echo: status=2 exit=0 signal=0 length=6 output=<hello
+>
+ok   timeout: run returns 0
+ok   timeout: terminated
+ok   timeout: the deadline is enforced
+ok   timeout: output survives the kill
+     timeout: status=4 exit=0 signal=0 length=4 output=<out
+>
+ok   cannot run: run returns -1
+ok   cannot run: status failed
+     cannot run: status=1 exit=0 signal=0 length=0 output=<>
+ok   exit 3: run returns 0
+ok   exit 3: exited
+ok   exit 3: exit code 3
+ok   exit 3: no output
+     exit 3: status=2 exit=3 signal=0 length=0 output=<>
+skip no POSIX signal_number on this platform
+ok   re-exec: run returns 0
+ok   re-exec: exited
+ok   re-exec: the child's report came back
+     re-exec: status=2 exit=0 signal=0 length=16 output=<child says smoke>
+ok   handle: open returns 0
+ok   handle: both ends came back
+ok   handle: stderr was left inherited
+ok   handle: it has a pid
+ok   handle: write reaches it
+ok   handle: and the answer comes back
+     handle: the child said <got ping
+>
+ok   handle: wait sees it stop
+ok   handle: close returns 0
+ok   handle: close resets it
+ok   banner: open returns 0
+ok   banner: stdout was discarded
+ok   banner: stderr came back
+ok   banner: it announced itself
+     banner: <listening on 127.0.0.1:6379
+>
+ok   banner: it is still running
+ok   banner: terminate asks it to stop
+ok   banner: and it goes
+ok   banner: stopped by TerminateProcess
+     banner: status=2 exit=1
+ok   banner: close returns 0
+ok   close: open returns 0
+ok   close: it said its piece
+ok   close: and it is still there
+ok   close: close returns 0
+ok   close: and calls it terminated
+ok   handle: a program that cannot run is not opened
+ok   handle: and leaves nothing open
+
+all mulle-spawn tests passed (0 failures)

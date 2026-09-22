@@ -1,0 +1,24 @@
+{
+   "name" : "mulle-spawn",
+   "version" : "1.0.0",
+   "description" : "Run a program, keep its output, outlive it if need be",
+   "keywords" : [],
+   "license" : "UNLICENSED",
+   "repo" : "mulle-core/mulle-spawn",
+   "src" : [
+      "src/generic/include-private.h",
+      "src/generic/include.h",
+      "src/mulle-spawn-posix.c",
+      "src/mulle-spawn-windows.c",
+      "src/mulle-spawn.c",
+      "src/mulle-spawn.h",
+      "src/reflect/_mulle-spawn-include-private.h",
+      "src/reflect/_mulle-spawn-include.h",
+      "src/reflect/_mulle-spawn-provide.h"
+   ],
+   "dependencies" : {
+      "mulle-c/mulle-c11": "*",
+      "mulle-c/mulle-allocator": "*",
+      "mulle-core/mulle-time": "*"
+   }
+}
