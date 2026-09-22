@@ -253,9 +253,45 @@ init to reap, and on Windows its exit code is never collected by anybody.
 Afterwards `wait`, `terminate` and `close` on that handle have nothing to act on
 and report it as an error rather than pretending otherwise.
 
-`struct mulle_spawn_options` is the shape this grows in: `env`, `directory` and
-a descriptor per stream today, and the rest of what a launch can be set to as it
-arrives. A zeroed struct *is* the default, which is
+### Stopping a child, and moving again
+
+Three calls, one signal each where there are signals:
+
+```c
+mulle_spawn_interrupt( &h);    /* SIGINT / CTRL_BREAK: "please stop" */
+mulle_spawn_suspend( &h);      /* SIGSTOP / NtSuspendProcess */
+mulle_spawn_resume( &h);       /* SIGCONT / NtResumeProcess */
+```
+
+`interrupt` is the cooperative one, and it is deliberately not `terminate`: it
+asks, and a child that handles the signal is expected to survive it. On Windows
+that question needs a target -- Ctrl+Break is addressed to a console process
+*group* -- so a child gets one only if the launch asked for it
+(`options.new_process_group`), and without it `interrupt` returns -1 with
+`errno` as `ENOTSUP` rather than signalling the console this process is sitting
+on, which would include this process. The flag is opt-in because it also turns
+off the child's own Ctrl+C handling.
+
+`suspend` and `resume` are a stop and a go. `SIGSTOP` cannot be caught or
+ignored, so a suspended child is really suspended; the Windows call is
+`NtSuspendProcess`, resolved out of `ntdll` the lazy way, and a system that does
+not export it gets -1 with `ENOTSUP` instead of a comfortable lie.
+
+A stopped child is still a running child: `wait` reports it as running, and
+`close` still ends it. What `terminate` does to a stopped child is the one thing
+the platforms disagree about -- Linux holds the signal until the process is
+continued, Darwin ends it there and then -- so a caller who suspends and then
+terminates should not expect the same answer everywhere.
+
+Where a child *was* terminated, the wait that follows says so: the status is
+`mulle_spawn_terminated` on both platforms. On POSIX you also get the signal
+that did it, because there is one to report; Windows has none, and used to
+answer with an exit code of 1 -- indistinguishable from a child that exited 1 by
+itself, which is exactly what an `NSTask` port was already tripping over.
+
+`struct mulle_spawn_options` is the shape this grows in: `env`, `directory`,
+a descriptor per stream and the process group today, and the rest of what a
+launch can be set to as it arrives. A zeroed struct *is* the default, which is
 why `mulle_spawn_open( h, argv, in_mode, out_mode, err_mode)` is
 exactly this call with a zeroed struct and those three modes.
 

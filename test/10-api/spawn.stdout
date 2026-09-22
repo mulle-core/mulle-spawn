@@ -99,5 +99,36 @@ ok   detach: there is nothing left to wait for
 ok   detach: the child is still running
 ok   detach: a handle that was never opened detaches
 ok   detach: and NULL is refused
+ok   suspend: open returns 0
+ok   suspend: the child is ticking
+ok   suspend: returns 0
+ok   suspend: and it is still a running child
+ok   resume: returns 0
+ok   resume: and it is ticking again
+ok   resume: terminate returns 0
+ok   resume: it stops on that
+ok   resume: as the signal it was sent
+ok   resume: close returns 0
+ok   interrupt: open returns 0
+ok   interrupt: the child is ticking
+ok   interrupt: returns 0
+ok   interrupt: it stopped
+ok   interrupt: of the signal it was sent
+ok   interrupt: close returns 0
+ok   stop: open returns 0
+ok   stop: the child is ticking
+ok   stop: suspend returns 0
+ok   stop: and the kernel says it is stopped
+ok   stop: and it has gone quiet
+ok   stop: it did not exit either
+ok   stop: resume returns 0
+ok   stop: and it is ticking again
+ok   stop: terminate returns 0
+ok   stop: it stops on that
+ok   stop: as the signal it was
+ok   stop: close returns 0
+ok   suspend: a handle that is not open is refused
+ok   resume: and so is a resume
+ok   interrupt: and so is an interrupt
 
 all mulle-spawn tests passed (0 failures)

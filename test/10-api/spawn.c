@@ -33,6 +33,7 @@
 # include <signal.h>
 # include <unistd.h>
 # include <fcntl.h>
+# include <poll.h>
 # include <sys/stat.h>
 # include <sys/wait.h>
 # define smoke_read(fd, buf, n)    read( fd, buf, n)
@@ -385,6 +386,43 @@ static int   child_main( int argc, char **argv)
       return( 0);
    }
 
+   if( argc >= 3 && ! strcmp( argv[ 1], "--tick"))
+   {
+      /*
+       * Says the same thing on a clock, so that "is it still doing anything"
+       * is a question with an answer: a suspended child answers it by going
+       * quiet, and an interrupted one by never answering again. Flushed every
+       * time, because buffered output would hide both.
+       *
+       * The count is deliberately far larger than any case needs: a child that
+       * finishes on its own while its parent is between two checks makes those
+       * checks meaningless -- and a stopped child that has already exited is
+       * still a pid that `kill` happily accepts.
+       */
+      int   i;
+      int   count;
+
+      count = atoi( argv[ 2]);
+
+#ifndef _WIN32
+      /*
+       * A disposition of SIG_IGN survives `exec`, and a test harness that
+       * ignores SIGINT -- so that Ctrl+C in a terminal does not stop a whole
+       * suite -- hands that on to every child it starts. This child wants the
+       * signal to do what the signal does, and only the child can say so.
+       */
+      signal( SIGINT, SIG_DFL);
+#endif
+
+      for( i = 0; i < count; i++)
+      {
+         printf( "tick\n");
+         fflush( stdout);
+         mulle_relativetime_sleep( 0.1);
+      }
+      return( 0);
+   }
+
 #ifndef _WIN32
    if( ! strcmp( argv[ 1], "--segv"))
    {
@@ -641,8 +679,13 @@ static void   test_handle_banner( void)
           r.status == mulle_spawn_signalled && r.signal_number == 15);
    printf( "     banner: status=%d signal=%d\n", r.status, r.signal_number);
 #else
+   /*
+    * TerminateProcess, which used to be reported as "exited, 1" -- the same
+    * answer as a child that chose to exit 1. It is remembered as a termination
+    * now, so that a caller can tell the two apart.
+    */
    check( "banner: stopped by TerminateProcess",
-          r.status == mulle_spawn_exited && r.exit_code == 1);
+          r.status == mulle_spawn_terminated);
    printf( "     banner: status=%d exit=%d\n", r.status, r.exit_code);
 #endif
 
@@ -1010,6 +1053,203 @@ static void   test_detach( void)
 
 
 /*
+ * Stopping a child and letting it go on again -- and interrupting one, which on
+ * one platform is a signal and on the other one refuses to be.
+ *
+ * The child ticks: the same line every 100 ms, and many more of them than the
+ * case could ever consume. So "is it still doing anything" has an answer -- a
+ * suspended child goes quiet, an interrupted one never speaks again -- and
+ * there is no count at which it might finish on its own between two checks.
+ *
+ * What can be asserted *exactly* differs, and that is worth spelling out:
+ *
+ *   POSIX    suspend is SIGSTOP, which cannot be caught or ignored, and the
+ *            proof is silence: the child ticks every 100 ms, so after a stop
+ *            the kernel confirms, four intervals with nothing to read is a
+ *            child that is really not running -- and a tick arriving after the
+ *            resume is the matching positive.
+ *   Windows  suspend is NtSuspendProcess and there is no `poll` to ask with, so
+ *            what is asserted there is the round trip and the tick that follows
+ *            the resume.
+ *
+ * There is a tempting proof that is not used here: send SIGTERM to a stopped
+ * child and watch it *not* die. Linux holds that signal pending until the
+ * process is continued; Darwin kills a stopped process there and then. Both are
+ * reasons enough not to build a test on it -- and worth knowing before an
+ * `NSTask` port assumes the Linux answer.
+ */
+static void   test_interrupt_suspend( void)
+{
+   struct mulle_spawn_handle   h;
+   struct mulle_spawn_result   r;
+   char                        *argv[ 4];
+   char                        buffer[ 32];
+   int                         n;
+
+   argv[ 0] = self_path;
+   argv[ 1] = "--tick";
+   argv[ 2] = "600";
+   argv[ 3] = NULL;
+
+   /* ---------------------------------------------------- suspend and resume */
+   check( "suspend: open returns 0",
+          mulle_spawn_open( &h, argv, MULLE_SPAWN_INHERIT, MULLE_SPAWN_PIPE,
+                            MULLE_SPAWN_INHERIT) == 0);
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_read_up_to( h.out, buffer, 5);
+   check( "suspend: the child is ticking", n == 5 && ! strcmp( buffer, "tick\n"));
+
+   check( "suspend: returns 0", mulle_spawn_suspend( &h) == 0);
+   check( "suspend: and it is still a running child",
+          mulle_spawn_wait( &h, 0.1, NULL) == 0);
+   check( "resume: returns 0", mulle_spawn_resume( &h) == 0);
+
+   /* the only proof of a resume that is not the return value of the call */
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_read_up_to( h.out, buffer, 5);
+   check( "resume: and it is ticking again", n == 5 && ! strcmp( buffer, "tick\n"));
+
+   check( "resume: terminate returns 0", mulle_spawn_terminate( &h) == 0);
+   check( "resume: it stops on that", mulle_spawn_wait( &h, 5.0, &r) == 1);
+#ifdef _WIN32
+   /* the same thing, said the only way the platform can say it */
+   check( "resume: and it was terminated", r.status == mulle_spawn_terminated);
+#else
+   check( "resume: as the signal it was sent",
+          r.status == mulle_spawn_signalled && r.signal_number == SIGTERM);
+#endif
+   check( "resume: close returns 0", mulle_spawn_close( &h, NULL) == 0);
+
+   /* ------------------------------------------------------------ interrupt */
+   check( "interrupt: open returns 0",
+          mulle_spawn_open( &h, argv, MULLE_SPAWN_INHERIT, MULLE_SPAWN_PIPE,
+                            MULLE_SPAWN_INHERIT) == 0);
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_read_up_to( h.out, buffer, 5);
+   check( "interrupt: the child is ticking", n == 5 && ! strcmp( buffer, "tick\n"));
+
+#ifndef _WIN32
+   check( "interrupt: returns 0", mulle_spawn_interrupt( &h) == 0);
+   check( "interrupt: it stopped", mulle_spawn_wait( &h, 5.0, &r) == 1);
+   check( "interrupt: of the signal it was sent",
+          r.status == mulle_spawn_signalled && r.signal_number == SIGINT);
+#else
+   /*
+    * Nothing to aim at: Ctrl+Break goes to a console process *group*, and this
+    * child sits in this process's group because `new_process_group` was not
+    * asked for. Refusing is the point -- the alternative is signalling the
+    * console this test is running on, which includes the test.
+    */
+   errno = 0;
+   check( "interrupt: refused without a group of its own",
+          mulle_spawn_interrupt( &h) == -1 && errno == ENOTSUP);
+   check( "interrupt: and the refusal leaves the child alone",
+          mulle_spawn_wait( &h, 0.3, NULL) == 0);
+   check( "interrupt: terminate is still the way to end it",
+          mulle_spawn_terminate( &h) == 0);
+   check( "interrupt: and that does stop it", mulle_spawn_wait( &h, 5.0, &r) == 1);
+   check( "interrupt: reported as terminated, not as an exit",
+          r.status == mulle_spawn_terminated);
+#endif
+   check( "interrupt: close returns 0", mulle_spawn_close( &h, NULL) == 0);
+
+#ifndef _WIN32
+   /*
+    * The proof of a stop, which is silence measured.
+    */
+   check( "stop: open returns 0",
+          mulle_spawn_open( &h, argv, MULLE_SPAWN_INHERIT, MULLE_SPAWN_PIPE,
+                            MULLE_SPAWN_INHERIT) == 0);
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_read_up_to( h.out, buffer, 5);
+   check( "stop: the child is ticking", n == 5 && ! strcmp( buffer, "tick\n"));
+
+   check( "stop: suspend returns 0", mulle_spawn_suspend( &h) == 0);
+
+   /*
+    * Wait until the *kernel* agrees that it stopped. Asking for a stop and then
+    * asking whether it took effect are two different questions, and only the
+    * second one makes the rest of this case mean anything. `WUNTRACED` is the
+    * portable way to be told, and reporting a stop does not consume anything
+    * the library wants: the child is still this process's to reap.
+    *
+    * Bounded, so a stop that never took effect fails the assertion instead of
+    * hanging the suite.
+    */
+   {
+      int   status;
+      int   i;
+      int   stopped;
+
+      stopped = 0;
+      for( i = 0; i < 100; i++)
+      {
+         if( waitpid( (pid_t) h.pid, &status, WNOHANG | WUNTRACED) == (pid_t) h.pid)
+         {
+            stopped = WIFSTOPPED( status);
+            break;
+         }
+         mulle_relativetime_sleep( 0.01);
+      }
+      check( "stop: and the kernel says it is stopped", stopped);
+   }
+
+   /*
+    * Whatever it managed to write before the stop is still in the pipe, and a
+    * full pipe would look like a child that is still talking -- so the pipe is
+    * emptied first, non blocking, and only then is silence a question. Four
+    * hundred milliseconds is four of its ticks.
+    */
+   {
+      struct pollfd   pfd;
+      int             flags;
+      int             drained;
+
+      flags = fcntl( h.out, F_GETFL);
+      (void) fcntl( h.out, F_SETFL, flags | O_NONBLOCK);
+
+      do
+      {
+         errno   = 0;
+         drained = (int) smoke_read( h.out, buffer, sizeof( buffer));
+      }
+      while( drained > 0);
+
+      pfd.fd      = h.out;
+      pfd.events  = POLLIN;
+      pfd.revents = 0;
+
+      check( "stop: and it has gone quiet", poll( &pfd, 1, 400) == 0);
+
+      (void) fcntl( h.out, F_SETFL, flags);
+   }
+
+   check( "stop: it did not exit either", mulle_spawn_wait( &h, 0.0, NULL) == 0);
+   check( "stop: resume returns 0", mulle_spawn_resume( &h) == 0);
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_read_up_to( h.out, buffer, 5);
+   check( "stop: and it is ticking again", n == 5 && ! strcmp( buffer, "tick\n"));
+
+   check( "stop: terminate returns 0", mulle_spawn_terminate( &h) == 0);
+   check( "stop: it stops on that", mulle_spawn_wait( &h, 5.0, &r) == 1);
+   check( "stop: as the signal it was",
+          r.status == mulle_spawn_signalled && r.signal_number == SIGTERM);
+   check( "stop: close returns 0", mulle_spawn_close( &h, NULL) == 0);
+#endif
+
+   /* a handle that was never opened has nothing to aim a signal at */
+   check( "suspend: a handle that is not open is refused",
+          mulle_spawn_suspend( &h) == -1);
+   check( "resume: and so is a resume", mulle_spawn_resume( &h) == -1);
+   check( "interrupt: and so is an interrupt", mulle_spawn_interrupt( &h) == -1);
+}
+
+
+/*
  * What the child is given to start with, which `mulle_spawn_open` cannot say
  * anything about -- a child inherits or it inherits.
  *
@@ -1156,6 +1396,7 @@ int   main( int argc, char **argv)
    test_directory();
    test_descriptor();
    test_detach();
+   test_interrupt_suspend();
 
    printf( "\n%s (%d failures)\n", failures ? "FAILED" : "all mulle-spawn tests passed",
            failures);

@@ -46,7 +46,7 @@ ok   banner: it is still running
 ok   banner: terminate asks it to stop
 ok   banner: and it goes
 ok   banner: stopped by TerminateProcess
-     banner: status=2 exit=1
+     banner: status=4 exit=0
 ok   banner: close returns 0
 ok   close: open returns 0
 ok   close: it said its piece
@@ -92,5 +92,26 @@ ok   detach: there is nothing left to wait for
 ok   detach: the child is still running
 ok   detach: a handle that was never opened detaches
 ok   detach: and NULL is refused
+ok   suspend: open returns 0
+ok   suspend: the child is ticking
+ok   suspend: returns 0
+ok   suspend: and it is still a running child
+ok   resume: returns 0
+ok   resume: and it is ticking again
+ok   resume: terminate returns 0
+ok   resume: it stops on that
+ok   resume: and it was terminated
+ok   resume: close returns 0
+ok   interrupt: open returns 0
+ok   interrupt: the child is ticking
+ok   interrupt: refused without a group of its own
+ok   interrupt: and the refusal leaves the child alone
+ok   interrupt: terminate is still the way to end it
+ok   interrupt: and that does stop it
+ok   interrupt: reported as terminated, not as an exit
+ok   interrupt: close returns 0
+ok   suspend: a handle that is not open is refused
+ok   resume: and so is a resume
+ok   interrupt: and so is an interrupt
 
 all mulle-spawn tests passed (0 failures)

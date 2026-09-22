@@ -165,7 +165,7 @@ Windows happened to have a zero there while Darwin's `execvp` answered EFAULT.
 The bug was in the test, not in mulle-spawn, and it only existed because macOS
 is run for real rather than assumed.
 
-## Step 2 — interrupt, suspend, resume
+## Step 2 — interrupt, suspend, resume  *[done]*
 
 `mulle_spawn_terminate` is the only signal there is. `NSTask` needs three more,
 and they are the platform differences with the least room to be clever:
@@ -183,9 +183,36 @@ and they are the platform differences with the least room to be clever:
   `accept` timeout is absent rather than emulated. `NSTask`'s `BOOL` return
   already has a slot for it.
 
+**Done:** `mulle_spawn_interrupt`, `mulle_spawn_suspend` and
+`mulle_spawn_resume`, with `options.new_process_group` as the Windows flag
+interrupt needs and `ENOTSUP` as the answer where there is nothing to aim at.
+Three things came out of writing it that the step did not anticipate:
+
+1. **Windows cannot report a terminated child as terminated.**
+   `TerminateProcess` leaves an exit code of 1, so `terminate` + `wait` answered
+   "exited, 1" -- the same as a child that chose to exit 1. This is the wart the
+   table in Step 3 already flags for `terminationStatus`; it is fixed here
+   rather than worked around in the port, so both platforms now report
+   `mulle_spawn_terminated`, and POSIX keeps the signal number on top.
+2. **A stopped child is not a uniformly stopped child.** Linux holds a fatal
+   signal sent to a stopped process *pending* until `SIGCONT`; Darwin terminates
+   it there and then. The test therefore proves a stop with measured silence
+   instead, which both platforms agree on, and the difference is written down
+   for whoever ports `suspend`.
+3. **`SIG_IGN` survives `exec`.** The test harness ignores `SIGINT` so that
+   Ctrl+C in a terminal does not stop a suite, and every child it starts
+   inherits that -- so `interrupt` looked like it did nothing. The child in the
+   test now says `SIGINT` should do what the signal does, which is also what a
+   real caller of `interrupt` wants and cannot get from the library.
+
 **Gate:** the same suite, three new cases on POSIX, and on Windows whatever the
 platform can honestly report — including the case that cannot be supported,
 asserted as unsupported rather than skipped silently.
+
+**Met, on Linux, macOS and Windows** (cross-built and run under wine): 26 new
+assertions, goldens re-recorded, demo 6/6 on both platforms. The Windows record
+grew by 21 lines and lost none — the `stop:` half is POSIX-only, and the one
+line that changed is the `banner:` verdict, by design.
 
 ## Step 3 — port `NSTask+Posix.m`
 
