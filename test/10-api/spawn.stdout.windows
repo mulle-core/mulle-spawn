@@ -69,5 +69,28 @@ ok   directory: open returns 0
 ok   directory: it ran there
      directory: cwd=spawn-cwd
 ok   directory: one that is absent is refused
+ok   descriptor: wrote the line it will read
+ok   descriptor: open returns 0
+ok   descriptor: the child got it as its stdin
+     descriptor: got hello
+ok   descriptor: close left it open
+ok   descriptor: open with it returns 0
+ok   descriptor: the handle made nothing of its own
+ok   descriptor: it stopped by itself
+ok   descriptor: close returns 0
+ok   descriptor: close left that one open too
+ok   descriptor: it wrote where it was told
+     descriptor: through-a-pipe
+ok   descriptor: one that is not open is refused
+ok   descriptor: and leaves nothing open
+ok   detach: open returns 0
+ok   detach: it is a real process
+ok   detach: returns 0
+ok   detach: the handle is emptied
+ok   detach: the descriptor went with it
+ok   detach: there is nothing left to wait for
+ok   detach: the child is still running
+ok   detach: a handle that was never opened detaches
+ok   detach: and NULL is refused
 
 all mulle-spawn tests passed (0 failures)

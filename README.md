@@ -123,9 +123,10 @@ if( mulle_spawn_open( &h, argv, MULLE_SPAWN_PIPE, MULLE_SPAWN_PIPE,
 ```
 
 `MULLE_SPAWN_PIPE` puts a descriptor in the handle, `MULLE_SPAWN_INHERIT`
-leaves the parent's own stream alone, and `MULLE_SPAWN_DISCARD` sends it to the
-null device. Note which way round the names read: `in` is what the child
-*reads*, `out` is what it *writes*, which is the child's point of view.
+leaves the parent's own stream alone, `MULLE_SPAWN_DISCARD` sends it to the
+null device, and `MULLE_SPAWN_DESCRIPTOR` gives the child one of yours. Note
+which way round the names read: `in` is what the child *reads*, `out` is what
+it *writes*, which is the child's point of view.
 
 A handle deliberately does not capture. There is one reader for a pipe and here
 you are it, so `wait` and `close` report the child's fate and leave `output`
@@ -192,9 +193,69 @@ directory and exited would report the same thing as a child that ran and
 returned 1. On Windows `CreateProcessW` refuses it itself through
 `lpCurrentDirectory`.
 
-`struct mulle_spawn_options` is the shape this grows in: `env` and `directory`
-today, and the rest of what a launch can be set to (a descriptor per stream in
-place of a new pipe) as it arrives. A zeroed struct *is* the default, which is
+### Giving the child a descriptor of your own
+
+A pipe you did not make is the fourth mode, and it is the one `NSPipe` and file
+redirection need: `MULLE_SPAWN_PIPE` can only ever create a *new* pipe and hand
+you an end of it, while a file, a socket, or a pipe somebody else made is
+`MULLE_SPAWN_DESCRIPTOR`, which gives the child the descriptor named in the same
+struct.
+
+```c
+int   fds[ 2];
+
+pipe( fds);                            /* or _pipe( fds, 4096, _O_BINARY) */
+
+mulle_spawn_options_init( &options);
+options.out_mode       = MULLE_SPAWN_DESCRIPTOR;
+options.out_descriptor = fds[ 1];
+
+mulle_spawn_open_with_options( &h, argv, &options);
+mulle_spawn_wait( &h, 5.0, NULL);
+mulle_spawn_close( &h, NULL);          /* does not close fds[ 1] */
+
+n = read( fds[ 0], buf, sizeof( buf));
+```
+
+The descriptor stays yours. The child is given a copy of it, the handle does not
+take it over, and neither `close` nor `detach` closes it -- so a caller that
+goes on reading and writing the same file afterwards is not surprised. It is
+also why the handle's own `in`, `out` and `err` stay -1 in that mode: nothing was
+made for you, so there is nothing for the handle to own.
+
+Waiting before closing is not a formality here. `close` terminates a child that
+is still running, and a child that has been killed never flushes what it
+printed -- so the reader above would find an empty pipe and blame the launch.
+
+A descriptor that is not open fails the launch rather than starting a child that
+dies on its first write: on POSIX it is checked in the parent and `errno` is
+`EBADF`, and on Windows there is no inheritable handle to pass on and
+`CreateProcessW` is refused.
+
+### A child that outlives the handle
+
+`close` is the right verb for a helper you started and are done with, and the
+wrong one for a child that is meant to outlive you -- a daemon, or a relauncher
+that starts something and exits. `detach` does neither of the two things close
+does: it does not terminate the child and it does not wait for it.
+
+```c
+unsigned long   pid;
+
+pid = h.pid;                 /* read it first: detach empties the handle */
+mulle_spawn_detach( &h);     /* descriptors closed, child neither killed nor reaped */
+```
+
+The descriptors this handle held are closed, so nothing of yours is left in the
+child's streams, and the child goes on running. What is given up is its fate:
+nothing here will ever wait for it again, so on POSIX it becomes an orphan for
+init to reap, and on Windows its exit code is never collected by anybody.
+Afterwards `wait`, `terminate` and `close` on that handle have nothing to act on
+and report it as an error rather than pretending otherwise.
+
+`struct mulle_spawn_options` is the shape this grows in: `env`, `directory` and
+a descriptor per stream today, and the rest of what a launch can be set to as it
+arrives. A zeroed struct *is* the default, which is
 why `mulle_spawn_open( h, argv, in_mode, out_mode, err_mode)` is
 exactly this call with a zeroed struct and those three modes.
 

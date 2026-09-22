@@ -94,17 +94,17 @@ checkout, `mulle-sde test run` passes in the spawn tree.
 Nothing later in this plan is worth doing before this is true: improvements to
 a library the customer cannot fetch are improvements to nothing.
 
-## Step 1 — the four launch inputs mulle-spawn does not have
+## Step 1 — the four launch inputs mulle-spawn does not have  *[done]*
 
-`mulle_spawn_open( h, argv, in_mode, out_mode, err_mode)` cannot express three
-of the things `NSTask` sets before a launch, and it is missing one mode:
+`mulle_spawn_open( h, argv, in_mode, out_mode, err_mode)` could not express
+three of the things `NSTask` sets before a launch, and it was missing one mode:
 
-| `NSTask` | today in spawn |
+| `NSTask` | in spawn now |
 |---|---|
 | `setEnvironment:` | **done** — `options.env`, replacing rather than merging |
 | `setCurrentDirectoryPath:` | **done** — `options.directory`, checked before anything is created |
-| `setStandardInput/Output/Error:` with *any* `NSFileHandle` (a file, `/dev/null`, a pipe someone else made) | only `INHERIT` / `PIPE` (a new pipe) / `DISCARD` (the null device) |
-| `NSTask` dealloc | `mulle_spawn_close` terminates a running child; `NSTask` lets it run |
+| `setStandardInput/Output/Error:` with *any* `NSFileHandle` (a file, `/dev/null`, a pipe someone else made) | **done** — `MULLE_SPAWN_DESCRIPTOR` and one descriptor per stream |
+| `NSTask` dealloc | **done** — `mulle_spawn_detach` lets the child run, which `close` will not |
 
 So: a parameter struct with `env` and `directory`, a fourth stdio mode
 `MULLE_SPAWN_DESCRIPTOR` that takes a caller-supplied descriptor (the
@@ -143,8 +143,27 @@ waited for and its process handle closed, so removing it takes a bounded retry
 mulle-spawn was failing there -- but a test that litters on one platform is
 still a test that fails on one platform.
 
-Still to come in this step: the `MULLE_SPAWN_DESCRIPTOR` mode, and
-`mulle_spawn_detach`.
+`MULLE_SPAWN_DESCRIPTOR`, as `options.in/out/err_descriptor`, with
+`options.*_mode` saying which streams use it. The descriptor stays the caller's:
+the child gets a copy, the handle owns nothing, and neither `close` nor `detach`
+closes it -- which is why the handle's fields stay -1 in that mode. A descriptor
+that is not open is refused in the parent on POSIX (`fcntl`, `errno` EBADF)
+rather than becoming a child that dies on its first write.
+
+`mulle_spawn_detach`, the opposite of `close`: the descriptors go, and the child
+is neither terminated nor reaped. It is the one thing on this list that is asked
+for by `NSTask`'s *absence* of behaviour -- `dealloc` lets a running child alone
+-- and it is what a relauncher or a daemon launcher needs. The price is stated
+in its own documentation: nothing will wait for that process again, so on POSIX
+it is an orphan for init and on Windows its exit code is never collected.
+
+**Step 1 is complete.** Five cases in `test/10-api/spawn.c` -- environment,
+directory, descriptor, detach, plus the refusals -- with goldens re-recorded on
+all three platforms. The macOS run earned its keep here: the second descriptor
+case passed an `argv` whose last slot was outside the array, and Linux and
+Windows happened to have a zero there while Darwin's `execvp` answered EFAULT.
+The bug was in the test, not in mulle-spawn, and it only existed because macOS
+is run for real rather than assumed.
 
 ## Step 2 — interrupt, suspend, resume
 
@@ -155,7 +174,9 @@ and they are the platform differences with the least room to be clever:
 - Windows: `interrupt` wants `CREATE_NEW_PROCESS_GROUP` plus
   `GenerateConsoleCtrlEvent`. That flag also disables the child's own Ctrl+C
   handling, so it is a decision, not a detail — and it has to be applied at
-  `CreateProcessW` time, i.e. in step 1's options. `suspend` / `resume` are
+  `CreateProcessW` time, which is a flag on the options struct that step 1 did
+  *not* close over (it is Step 2's to add, and nothing else needed it).
+  `suspend` / `resume` are
   `NtSuspendProcess` / `NtResumeProcess`, exported by `ntdll` but undocumented;
   the resolution dance currently lives in `NSTask+Windows.m` and moves here.
 - Where a platform genuinely cannot: return a named failure, the way the

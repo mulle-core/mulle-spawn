@@ -32,14 +32,19 @@
 #ifndef _WIN32
 # include <signal.h>
 # include <unistd.h>
+# include <fcntl.h>
 # include <sys/stat.h>
+# include <sys/wait.h>
 # define smoke_read(fd, buf, n)    read( fd, buf, n)
 # define smoke_write(fd, buf, n)   write( fd, buf, n)
 # define smoke_close(fd)           close( fd)
 # define smoke_mkdir(path)         mkdir( path, 0755)
 # define smoke_rmdir(path)         rmdir( path)
 # define smoke_getcwd(buf, n)      getcwd( buf, n)
+# define smoke_pipe(fds)           pipe( fds)
+# define smoke_fd_open(fd)         (fcntl( fd, F_GETFD) >= 0)
 #else
+# include <windows.h>
 # include <direct.h>
 # include <fcntl.h>
 # include <io.h>
@@ -49,6 +54,8 @@
 # define smoke_mkdir(path)         _mkdir( path)
 # define smoke_rmdir(path)         _rmdir( path)
 # define smoke_getcwd(buf, n)      _getcwd( buf, n)
+# define smoke_pipe(fds)           _pipe( fds, 4096, _O_BINARY)
+# define smoke_fd_open(fd)         (_get_osfhandle( fd) != (intptr_t) -1)
 #endif
 
 
@@ -227,6 +234,67 @@ static int   smoke_capture( char * const *argv,
    (void) mulle_spawn_close( &h, NULL);
    return( n);
 }
+
+
+/*
+ * Asking after a process this program no longer has a handle for, which is what
+ * the detach case leaves behind: a signal that only asks, or a kernel object
+ * opened on the pid. Both are a snapshot -- "it is running" is not a promise
+ * about a moment later -- and that is enough for a child asleep for thirty
+ * seconds with nothing to exit for.
+ *
+ * `smoke_end_process` is the other half: a test that detaches a child still has
+ * to clean it up, or it leaves a sleeper behind for the next run to find.
+ */
+#ifdef _WIN32
+static int   smoke_is_running( unsigned long pid)
+{
+   HANDLE   process;
+   DWORD    waited;
+
+   process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE,
+                          FALSE, (DWORD) pid);
+   if( ! process)
+      return( 0);
+
+   waited = WaitForSingleObject( process, 0);
+   CloseHandle( process);
+   return( waited == WAIT_TIMEOUT);
+}
+
+
+static void   smoke_end_process( unsigned long pid)
+{
+   HANDLE   process;
+
+   process = OpenProcess( PROCESS_TERMINATE, FALSE, (DWORD) pid);
+   if( ! process)
+      return;
+
+   (void) TerminateProcess( process, 1);
+   CloseHandle( process);
+}
+#else
+static int   smoke_is_running( unsigned long pid)
+{
+   return( kill( (pid_t) pid, 0) == 0);
+}
+
+
+static void   smoke_end_process( unsigned long pid)
+{
+   int   status;
+
+   (void) kill( (pid_t) pid, SIGKILL);
+
+   /* it is still this process's child, detached or not, so it is ours to reap */
+   while( waitpid( (pid_t) pid, &status, 0) < 0)
+   {
+      if( errno != EINTR)
+         break;
+   }
+}
+#endif
 
 
 /*
@@ -770,6 +838,178 @@ static void   test_directory( void)
 
 
 /*
+ * A descriptor of the caller's own per stream -- what `MULLE_SPAWN_PIPE`
+ * cannot be, because a pipe is something this call makes and hands back an end
+ * of. A file, a socket, or a pipe somebody else made is what `setStandardOutput:`
+ * with an `NSFileHandle` means, and this is the mode under it.
+ *
+ * Pipes are used rather than files, for two reasons that both matter here: the
+ * code path is the same one a file would take (a descriptor the caller already
+ * holds, handed over as it is), and a test that writes files has to remove them
+ * again -- on one platform reaping a directory a child ran in already needed a
+ * retry, and there is no reason to go looking for the same thing twice.
+ */
+static void   test_descriptor( void)
+{
+   struct mulle_spawn_handle   h;
+   struct mulle_spawn_options  options;
+   char                        *argv[ 4];
+   char                        buffer[ 64];
+   int                         infds[ 2];
+   int                         outfds[ 2];
+   int                         n;
+
+   /* four slots: the widest argv here is program, mode, argument, NULL */
+   argv[ 0] = self_path;
+   argv[ 1] = NULL;
+   argv[ 2] = NULL;
+   argv[ 3] = NULL;
+
+   mulle_spawn_options_init( &options);
+
+   /*
+    * What the child reads. The write end is ours and is closed before the
+    * launch, so the child's `--filter` sees the end of its input and stops.
+    */
+   if( smoke_pipe( infds))
+   {
+      check( "descriptor: made a pipe to hand over", 0);
+      return;
+   }
+
+   check( "descriptor: wrote the line it will read",
+          smoke_write( infds[ 1], "hello\n", 6) == 6);
+   smoke_close( infds[ 1]);
+
+   argv[ 1] = "--filter";
+
+   options.in_descriptor = infds[ 0];
+   options.in_mode       = MULLE_SPAWN_DESCRIPTOR;
+   options.out_mode      = MULLE_SPAWN_PIPE;
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_capture( argv, &options, buffer, sizeof( buffer));
+   check( "descriptor: open returns 0", n >= 0);
+   check( "descriptor: the child got it as its stdin",
+          ! strcmp( buffer, "got hello\n"));
+   smoke_show_lines( "descriptor", buffer);
+
+   /* the point of the mode: the descriptor is still the caller's afterwards */
+   check( "descriptor: close left it open", smoke_fd_open( infds[ 0]));
+   smoke_close( infds[ 0]);
+
+   /*
+    * And where the child writes. `--echo` says one line and is done, so the
+    * order is: launch it, give the handle back, and only then read -- the read
+    * end sees the line and then the end of the pipe, because by now the child
+    * and our own copy of the write end are both gone.
+    */
+   if( smoke_pipe( outfds))
+   {
+      check( "descriptor: made a pipe to write into", 0);
+      return;
+   }
+
+   argv[ 1] = "--echo";
+   argv[ 2] = "through-a-pipe";
+
+   options.in_descriptor  = -1;
+   options.in_mode        = MULLE_SPAWN_INHERIT;
+   options.out_mode       = MULLE_SPAWN_DESCRIPTOR;
+   options.out_descriptor = outfds[ 1];
+
+   check( "descriptor: open with it returns 0",
+          mulle_spawn_open_with_options( &h, argv, &options) == 0);
+   check( "descriptor: the handle made nothing of its own",
+          h.in == -1 && h.out == -1 && h.err == -1);
+
+   /* waited for before closing: close is allowed to end a child that is still
+    * running, and a killed child never gets to flush what it printed */
+   check( "descriptor: it stopped by itself",
+          mulle_spawn_wait( &h, 5.0, NULL) == 1);
+   check( "descriptor: close returns 0", mulle_spawn_close( &h, NULL) == 0);
+   check( "descriptor: close left that one open too",
+          smoke_fd_open( outfds[ 1]));
+
+   smoke_close( outfds[ 1]);
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_read_up_to( outfds[ 0], buffer, sizeof( buffer) - 1);
+   check( "descriptor: it wrote where it was told",
+          n == 15 && ! strcmp( buffer, "through-a-pipe\n"));
+   smoke_show_lines( "descriptor", buffer);
+
+   smoke_close( outfds[ 0]);
+
+   /* and one that is not open fails the launch, rather than the child */
+   options.out_descriptor = -1;
+
+   errno = 0;
+   check( "descriptor: one that is not open is refused",
+          mulle_spawn_open_with_options( &h, argv, &options) == -1);
+#ifndef _WIN32
+   check( "descriptor: and errno says EBADF", errno == EBADF);
+#endif
+   check( "descriptor: and leaves nothing open",
+          h.in == -1 && h.out == -1 && h.err == -1 && h.pid == 0);
+}
+
+
+/*
+ * The one thing `close` will not do: let a child go on running.
+ *
+ * Everything here is about what detach gives *up* -- the descriptors, the pid,
+ * the wait that would have collected the child -- so it is asserted by what is
+ * gone and by the child still being there, not by anything the handle says.
+ */
+static void   test_detach( void)
+{
+   struct mulle_spawn_handle   h;
+   struct mulle_spawn_result   r;
+   char                        *argv[ 4];
+   unsigned long               pid;
+   int                         out;
+
+   argv[ 0] = self_path;
+   argv[ 1] = "--stall";
+   argv[ 2] = "30";
+   argv[ 3] = NULL;
+
+   check( "detach: open returns 0",
+          mulle_spawn_open( &h, argv, MULLE_SPAWN_INHERIT, MULLE_SPAWN_PIPE,
+                            MULLE_SPAWN_INHERIT) == 0);
+
+   /* both have to be read out first: detach empties the handle */
+   pid = h.pid;
+   out = h.out;
+
+   check( "detach: it is a real process", pid != 0 && out >= 0);
+   check( "detach: returns 0", mulle_spawn_detach( &h) == 0);
+   check( "detach: the handle is emptied",
+          h.in == -1 && h.out == -1 && h.err == -1 &&
+          h.pid == 0 && ! h.opened);
+   check( "detach: the descriptor went with it", ! smoke_fd_open( out));
+   check( "detach: there is nothing left to wait for",
+          mulle_spawn_wait( &h, 0.0, &r) == -1);
+
+   /*
+    * The child is the thing that must *not* have changed: detach is only a
+    * promise about this handle, and a detached child that has been killed is
+    * exactly what a caller uses detach to avoid.
+    */
+   check( "detach: the child is still running", smoke_is_running( pid));
+
+   /* a test cleans up after itself, so this one ends what it detached */
+   smoke_end_process( pid);
+
+   /* nothing to detach is not an error either way round */
+   check( "detach: a handle that was never opened detaches",
+          mulle_spawn_detach( &h) == 0);
+   check( "detach: and NULL is refused", mulle_spawn_detach( NULL) == -1);
+}
+
+
+/*
  * What the child is given to start with, which `mulle_spawn_open` cannot say
  * anything about -- a child inherits or it inherits.
  *
@@ -914,6 +1154,8 @@ int   main( int argc, char **argv)
    test_handle_cannot_open();
    test_environment();
    test_directory();
+   test_descriptor();
+   test_detach();
 
    printf( "\n%s (%d failures)\n", failures ? "FAILED" : "all mulle-spawn tests passed",
            failures);
