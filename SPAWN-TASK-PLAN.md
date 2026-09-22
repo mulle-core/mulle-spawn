@@ -101,8 +101,8 @@ of the things `NSTask` sets before a launch, and it is missing one mode:
 
 | `NSTask` | today in spawn |
 |---|---|
-| `setEnvironment:` | absent — POSIX `execvp` inherits, Windows passes `NULL` |
-| `setCurrentDirectoryPath:` | absent — no `chdir`, no `lpCurrentDirectory` |
+| `setEnvironment:` | **done** — `options.env`, replacing rather than merging |
+| `setCurrentDirectoryPath:` | **done** — `options.directory`, checked before anything is created |
 | `setStandardInput/Output/Error:` with *any* `NSFileHandle` (a file, `/dev/null`, a pipe someone else made) | only `INHERIT` / `PIPE` (a new pipe) / `DISCARD` (the null device) |
 | `NSTask` dealloc | `mulle_spawn_close` terminates a running child; `NSTask` lets it run |
 
@@ -127,8 +127,24 @@ non-NULL array means that and nothing else, `{ NULL }` means none. macOS
 replaces it through `_NSGetEnviron()`, Windows through a UTF-16 block for
 `CreateProcessW`; Linux and macOS assert the contents exactly, and Windows
 asserts that handing one over ends the inheritance, because wine drops any
-block (see `probe/`). Still to come in this step: `directory`, the
-`MULLE_SPAWN_DESCRIPTOR` mode, and `mulle_spawn_detach`.
+block (see `probe/`).
+
+`directory`, as `options.directory`, entered before the program is looked up so
+a relative `argv[ 0]` resolves against it. On POSIX the directory is `stat`ed in
+the parent first -- a child that choked on it would come back as an exit code
+and its own errno, and the launch would have "succeeded" -- then `chdir`ed in the
+child; on Windows it is `lpCurrentDirectory`, which `CreateProcessW` refuses
+itself. Both platforms assert that a child which reports its own working
+directory reports the named one, that an absent directory is refused, and, on
+POSIX, that `errno` is `ENOENT`. One thing that showed up on Windows alone: the
+directory a child ran in stays *in use* for a moment after the child has been
+waited for and its process handle closed, so removing it takes a bounded retry
+(`smoke_rmdir_when_released` in the test, and see OPENENDS.md). Nothing in
+mulle-spawn was failing there -- but a test that litters on one platform is
+still a test that fails on one platform.
+
+Still to come in this step: the `MULLE_SPAWN_DESCRIPTOR` mode, and
+`mulle_spawn_detach`.
 
 ## Step 2 — interrupt, suspend, resume
 

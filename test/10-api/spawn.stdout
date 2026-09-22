@@ -70,5 +70,10 @@ ok   environment: emptied, open returns 0
 ok   environment: emptied
      environment: emptied: MULLE_SPAWN_MARKER=<unset>
      environment: emptied: MULLE_SPAWN_TEST=<unset>
+ok   directory: open returns 0
+ok   directory: it ran there
+     directory: cwd=spawn-cwd
+ok   directory: one that is absent is refused
+ok   directory: and errno says ENOENT
 
 all mulle-spawn tests passed (0 failures)

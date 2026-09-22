@@ -170,10 +170,32 @@ meant to run under a different environment is found the way that environment
 would find it. The array is not copied -- it has to stay valid until `open`
 returns, which is when the child receives it.
 
-`struct mulle_spawn_options` is the shape this grows in: `env` today, and the
-rest of what a launch can be set to (a working directory, a descriptor per
-stream in place of a new pipe) as it arrives. A zeroed struct *is* the default,
-which is why `mulle_spawn_open( h, argv, in_mode, out_mode, err_mode)` is
+### The directory the child runs in
+
+The same struct names where the child starts:
+
+```c
+options.directory = "/tmp";
+```
+
+`NULL` is the directory it would have inherited. A named one is entered before
+the program is looked up, so a relative `argv[ 0]` is resolved against it, and
+the rest of this call's arguments are unaffected -- `mulle_spawn_open_with_options`
+never changes *your* working directory, only the child's.
+
+A directory that is not there fails the launch, rather than starting the
+program in the wrong place: two children that ran in different directories look
+exactly alike afterwards, which is the failure this field exists to prevent.
+The complaint is the parent's, before anything is created, on POSIX with
+`errno` saying why (`ENOENT`, `ENOTDIR`, `EACCES`) -- a child that choked on the
+directory and exited would report the same thing as a child that ran and
+returned 1. On Windows `CreateProcessW` refuses it itself through
+`lpCurrentDirectory`.
+
+`struct mulle_spawn_options` is the shape this grows in: `env` and `directory`
+today, and the rest of what a launch can be set to (a descriptor per stream in
+place of a new pipe) as it arrives. A zeroed struct *is* the default, which is
+why `mulle_spawn_open( h, argv, in_mode, out_mode, err_mode)` is
 exactly this call with a zeroed struct and those three modes.
 
 Output and termination are independent on purpose. A child that printed

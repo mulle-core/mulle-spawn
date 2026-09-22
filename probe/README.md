@@ -38,3 +38,45 @@ POSIX, where they are judged exactly.
     cc=/opt/mulle-clang-project-windows/latest/bin/x86_64-w64-mingw32-clang
     $cc -std=gnu11 -o env-block-probe.exe env-block-probe.c
     wine env-block-probe.exe
+
+## `cwd-probe.c` — why can a directory a child ran in not be removed?
+
+The `directory` case makes a directory, runs a child in it and gives it back.
+On Linux the removal works first try. Under wine it comes back `EACCES`, and
+this splits the two reasons that could explain it — that removing a directory
+fails here at all, or that it fails only once a child has used it — and reports
+the errno of each attempt, and what waiting changes:
+
+1. remove a directory nothing has used;
+2. launch itself with that directory as its working directory, wait for the
+   child *without* a timeout, remove it right after;
+3. wait 500 ms and remove it again.
+
+Measured under wine:
+
+    a directory nobody ran in:
+      _mkdir:                   0 (errno 0)
+      _rmdir right after:      removed it
+    a directory a child ran in:
+      _mkdir:                   0 (errno 0)
+      the child exited with 288
+      _rmdir right after:      removed it
+      _rmdir after 500ms:      failed, errno 2
+      _rmdir after 2.5s:       failed, errno 2
+
+The `errno 2` is `ENOENT`: the first removal worked, and the later attempts are
+complaining about a directory that is already gone.
+
+So removal is neither broken nor permanently held — the same call the test
+cannot make on its first three attempts succeeds here on its first, with the
+child reaped by an untimed wait and its process handle closed straight after.
+What is left is timing inside wine's own bookkeeping: the directory can be
+removed as soon as the process object is forgotten, and in the test that takes
+about 150 ms.
+
+What follows: `smoke_rmdir_when_released()` retries `EACCES`/`EBUSY` a bounded
+number of times and says so on stderr if it gives up. See OPENENDS.md in the
+demo for why this is recorded rather than hidden.
+
+    $cc -std=gnu11 -o cwd-probe.exe cwd-probe.c
+    wine cwd-probe.exe

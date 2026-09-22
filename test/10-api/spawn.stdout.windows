@@ -65,5 +65,9 @@ ok   environment: replaced ends the inheritance
 ok   environment: emptied, open returns 0
 ok   environment: emptied ends the inheritance
      environment: emptied: an empty block, left alone
+ok   directory: open returns 0
+ok   directory: it ran there
+     directory: cwd=spawn-cwd
+ok   directory: one that is absent is refused
 
 all mulle-spawn tests passed (0 failures)

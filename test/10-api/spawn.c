@@ -24,6 +24,7 @@
  */
 #include <mulle-spawn/mulle-spawn.h>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,15 +32,23 @@
 #ifndef _WIN32
 # include <signal.h>
 # include <unistd.h>
+# include <sys/stat.h>
 # define smoke_read(fd, buf, n)    read( fd, buf, n)
 # define smoke_write(fd, buf, n)   write( fd, buf, n)
 # define smoke_close(fd)           close( fd)
+# define smoke_mkdir(path)         mkdir( path, 0755)
+# define smoke_rmdir(path)         rmdir( path)
+# define smoke_getcwd(buf, n)      getcwd( buf, n)
 #else
+# include <direct.h>
 # include <fcntl.h>
 # include <io.h>
 # define smoke_read(fd, buf, n)    _read( fd, buf, n)
 # define smoke_write(fd, buf, n)   _write( fd, buf, n)
 # define smoke_close(fd)           _close( fd)
+# define smoke_mkdir(path)         _mkdir( path)
+# define smoke_rmdir(path)         _rmdir( path)
+# define smoke_getcwd(buf, n)      _getcwd( buf, n)
 #endif
 
 
@@ -285,6 +294,18 @@ static int   child_main( int argc, char **argv)
       /* the names are the question; the answers are what it was launched with */
       for( i = 2; i < argc; i++)
          print_variable( argv[ i]);
+      return( 0);
+   }
+
+   if( ! strcmp( argv[ 1], "--cwd"))
+   {
+      char   buffer[ 1024];
+
+      if( ! smoke_getcwd( buffer, sizeof( buffer)))
+         return( 1);
+
+      /* the tail, not the path: a path is a machine's layout, not a fact */
+      printf( "cwd=%s\n", smoke_basename( buffer));
       return( 0);
    }
 
@@ -624,6 +645,131 @@ static void   test_handle_cannot_open( void)
 
 
 /*
+ * `<the directory this program is in>/<name>`, so a case can make something of
+ * its own without knowing where it was put -- which is what keeps the same
+ * assertion true under `mulle-sde test`, under a hand build in /tmp, and on a
+ * machine that lays the tree out differently. Note the small `smoke_basename`
+ * above: what goes into the record is the tail of the path, never the path.
+ *
+ * Returns 0, or -1 if it does not fit or this program has no known location.
+ */
+static int   smoke_beside_self( char *dst, size_t capacity, const char *name)
+{
+   size_t   length;
+   size_t   wanted;
+
+   if( ! self_found)
+      return( -1);
+
+   length = strlen( self_path);
+   while( length && self_path[ length - 1] != '/' && self_path[ length - 1] != '\\')
+      length--;
+
+   wanted = length + strlen( name) + 1;
+   if( wanted > capacity)
+      return( -1);
+
+   memcpy( dst, self_path, length);
+   memcpy( dst + length, name, strlen( name) + 1);
+   return( 0);
+}
+
+
+/*
+ * The directory a child ran in, given back.
+ *
+ * On Windows the removal is not immediate: the platform keeps answering EACCES
+ * for a short while after the child has been waited for and its process handle
+ * closed, and releases the directory on its own within a tenth of a second or
+ * so. Measured there (under wine, which is the only Windows this has run on),
+ * the third attempt at 25 ms apart succeeds. Nothing in mulle-spawn is failing
+ * here -- every assertion of the case has run by the time this is called -- so
+ * a bounded retry is the honest way to give the directory back, rather than a
+ * case that leaves litter behind on one platform.
+ *
+ * An errno that will not change for the better is not retried, and a directory
+ * that could not be removed is reported on stderr, which is not part of the
+ * record.
+ */
+static void   smoke_rmdir_when_released( const char *path)
+{
+   int   i;
+
+   for( i = 0; i < 40; i++)
+   {
+      errno = 0;
+      if( ! smoke_rmdir( path))
+         return;
+      if( errno != EACCES && errno != EBUSY)
+         break;
+      mulle_relativetime_sleep( 0.025);
+   }
+
+   fprintf( stderr, "smoke: could not remove <%s>, errno %d -- a leftover\n",
+            path, errno);
+}
+
+
+/*
+ * The directory a child runs in, which is not a nicety: a launch that names a
+ * directory that is not there used to run the child wherever the parent was,
+ * and that is indistinguishable from a child that worked.
+ *
+ * The directory is made here, beside this program, and given back however the
+ * case ends.
+ */
+static void   test_directory( void)
+{
+   struct mulle_spawn_handle   h;
+   struct mulle_spawn_options  options;
+   char                        buffer[ 256];
+   char                        *argv[ 3];
+   char                        work[ 4096];
+   int                         n;
+
+   argv[ 0] = self_path;
+   argv[ 1] = "--cwd";
+   argv[ 2] = NULL;
+
+   mulle_spawn_options_init( &options);
+   options.out_mode = MULLE_SPAWN_PIPE;
+
+   if( smoke_beside_self( work, sizeof( work), "spawn-cwd"))
+   {
+      check( "directory: beside itself is a place it knows", 0);
+      return;
+   }
+
+   /* a leftover from a run that died is not a reason to skip the case */
+   if( smoke_mkdir( work) && errno != EEXIST)
+   {
+      check( "directory: made somewhere to run", 0);
+      return;
+   }
+
+   options.directory = work;
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_capture( argv, &options, buffer, sizeof( buffer));
+   check( "directory: open returns 0", n >= 0);
+   check( "directory: it ran there", ! strcmp( buffer, "cwd=spawn-cwd\n"));
+   smoke_show_lines( "directory", buffer);
+
+   /* and one that is not there fails the launch, rather than being ignored */
+   options.directory = "/nonexistent/mulle-spawn-no-such-directory";
+
+   errno = 0;
+   check( "directory: one that is absent is refused",
+          mulle_spawn_open_with_options( &h, argv, &options) == -1);
+#ifndef _WIN32
+   check( "directory: and errno says ENOENT", errno == ENOENT);
+#endif
+
+   smoke_rmdir_when_released( work);
+}
+
+
+/*
  * What the child is given to start with, which `mulle_spawn_open` cannot say
  * anything about -- a child inherits or it inherits.
  *
@@ -767,6 +913,7 @@ int   main( int argc, char **argv)
    test_handle_close_kills();
    test_handle_cannot_open();
    test_environment();
+   test_directory();
 
    printf( "\n%s (%d failures)\n", failures ? "FAILED" : "all mulle-spawn tests passed",
            failures);
