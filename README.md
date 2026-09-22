@@ -143,6 +143,39 @@ wait, so a child that tidies up first gets its chance: terminate, wait, close.
 If you close a descriptor yourself, set the field to `-1` so `close` does not
 close it twice -- descriptor numbers get reused.
 
+### Giving the child an environment
+
+`mulle_spawn_open` starts a child that inherits your environment, because that
+is what every caller has wanted so far. When one does not, the same call takes
+a description of the launch instead of the three modes:
+
+```c
+struct mulle_spawn_options   options;
+char                         *env[ 2];
+
+env[ 0] = "PATH=/usr/bin:/bin";
+env[ 1] = NULL;
+
+mulle_spawn_options_init( &options);
+options.env      = env;
+options.out_mode = MULLE_SPAWN_PIPE;
+
+mulle_spawn_open_with_options( &h, argv, &options);
+```
+
+`env` is `execve`'s `envp`, NULL terminated, and it *replaces* your environment
+rather than being merged into it: `NULL` means "mine", `{ NULL }` means "none at
+all". A replaced `PATH` is also the one `argv[ 0]` is looked up in, so a child
+meant to run under a different environment is found the way that environment
+would find it. The array is not copied -- it has to stay valid until `open`
+returns, which is when the child receives it.
+
+`struct mulle_spawn_options` is the shape this grows in: `env` today, and the
+rest of what a launch can be set to (a working directory, a descriptor per
+stream in place of a new pipe) as it arrives. A zeroed struct *is* the default,
+which is why `mulle_spawn_open( h, argv, in_mode, out_mode, err_mode)` is
+exactly this call with a zeroed struct and those three modes.
+
 Output and termination are independent on purpose. A child that printed
 something and *then* hung leaves that output in `output` with
 `mulle_spawn_terminated` in `status`; a caller that asked a question usually

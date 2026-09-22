@@ -139,6 +139,88 @@ static double   now_seconds( void)
 
 
 /*
+ * Unset and empty are two different things an environment can be, and the first
+ * is what a replaced environment produces -- so they are told apart here rather
+ * than both printed as nothing.
+ */
+static void   print_variable( const char *name)
+{
+   char   *value;
+
+   value = getenv( name);
+   printf( "%s=%s\n", name, value ? value : "<unset>");
+}
+
+
+/*
+ * The marker goes into the parent's own environment, so that what the child says
+ * about it is a statement about the launch and not about whatever environment
+ * this test was started in.
+ */
+static void   set_marker( void)
+{
+#ifdef _WIN32
+   (void) _putenv_s( "MULLE_SPAWN_MARKER", "inherited");
+#else
+   (void) setenv( "MULLE_SPAWN_MARKER", "inherited", 1);
+#endif
+}
+
+
+/*
+ * A capture printed line by line, so that a multi line answer reads as lines in
+ * the record instead of as one string with newlines in the middle of it.
+ */
+static void   smoke_show_lines( const char *label, const char *text)
+{
+   const char   *nl;
+   const char   *p;
+
+   for( p = text; *p; p = nl + 1)
+   {
+      nl = strchr( p, '\n');
+      if( ! nl)
+      {
+         printf( "     %s: %s\n", label, p);
+         break;
+      }
+      printf( "     %s: %.*s\n", label, (int) (nl - p), p);
+   }
+}
+
+
+/*
+ * Runs the child with `options` and leaves what it printed in `buffer`.
+ * Returns the number of bytes captured, or -1 if it could not be started.
+ * The caller's options are borrowed; the handle is opened, drained and closed
+ * here, which is all these cases need of one.
+ */
+static int   smoke_capture( char * const *argv,
+                            struct mulle_spawn_options const *options,
+                            char *buffer,
+                            size_t capacity)
+{
+   struct mulle_spawn_handle   h;
+   int                         n;
+
+   if( mulle_spawn_open_with_options( &h, argv, options))
+      return( -1);
+
+   if( h.out < 0)
+   {
+      (void) mulle_spawn_close( &h, NULL);
+      return( -1);
+   }
+
+   n = smoke_read_up_to( h.out, buffer, capacity - 1);
+
+   (void) mulle_spawn_wait( &h, 5.0, NULL);
+   (void) mulle_spawn_close( &h, NULL);
+   return( n);
+}
+
+
+/*
  * The child modes. Each one exists so the parent has a real second process to
  * observe, and each exercises a different status: a clean exit, a non zero exit,
  * and one that outlives its deadline after having said something.
@@ -195,6 +277,16 @@ static int   child_main( int argc, char **argv)
 
    if( argc >= 3 && ! strcmp( argv[ 1], "--exit"))
       return( atoi( argv[ 2]));
+
+   if( argc >= 3 && ! strcmp( argv[ 1], "--environment"))
+   {
+      int   i;
+
+      /* the names are the question; the answers are what it was launched with */
+      for( i = 2; i < argc; i++)
+         print_variable( argv[ i]);
+      return( 0);
+   }
 
    if( argc >= 3 && ! strcmp( argv[ 1], "--stall"))
    {
@@ -531,6 +623,99 @@ static void   test_handle_cannot_open( void)
 }
 
 
+/*
+ * What the child is given to start with, which `mulle_spawn_open` cannot say
+ * anything about -- a child inherits or it inherits.
+ *
+ * The same child is launched three times and asked the same two questions, and
+ * the answers are expected to move:
+ *
+ *   inherited   NULL          the marker is there, the other name is not
+ *   replaced    { TEST }      the marker is gone, the other name is there
+ *   emptied     { NULL }      neither, which is not the same as "no opinion"
+ *
+ * The child is named by its absolute path throughout, so that none of this
+ * depends on `PATH` surviving into the environment it is given.
+ *
+ * What a *given* environment contains is judged on POSIX only. On Windows the
+ * only platform this can be run on is wine, and wine ignores CreateProcessW's
+ * `lpEnvironment` outright: a child launched with a block of any kind sees an
+ * empty environment -- Windows' own GetEnvironmentStringsW() handed straight
+ * back included, which is what makes it the emulator rather than the block.
+ * `probe/env-block-probe.c` is that measurement. So on Windows the record says
+ * what the platform can honestly show: an environment that is handed over ends
+ * the inheritance, and the parent's marker goes with it.
+ */
+static void   test_environment( void)
+{
+   struct mulle_spawn_options  options;
+   char                        buffer[ 256];
+   char                        *argv[ 5];
+   char                        *emptied[ 1];
+   char                        *replacement[ 2];
+   int                         n;
+
+   set_marker();
+
+   argv[ 0] = self_path;
+   argv[ 1] = "--environment";
+   argv[ 2] = "MULLE_SPAWN_MARKER";
+   argv[ 3] = "MULLE_SPAWN_TEST";
+   argv[ 4] = NULL;
+
+   replacement[ 0] = "MULLE_SPAWN_TEST=replaced";
+   replacement[ 1] = NULL;
+
+   emptied[ 0] = NULL;
+
+   mulle_spawn_options_init( &options);
+   options.out_mode = MULLE_SPAWN_PIPE;
+
+   /* NULL: the parent's environment, marker and all */
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_capture( argv, &options, buffer, sizeof( buffer));
+   check( "environment: inherited, open returns 0", n >= 0);
+   check( "environment: inherited",
+          ! strcmp( buffer, "MULLE_SPAWN_MARKER=inherited\n"
+                            "MULLE_SPAWN_TEST=<unset>\n"));
+   smoke_show_lines( "environment: inherited", buffer);
+
+   /* a given one replaces rather than adds to the parent's */
+   options.env = replacement;
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_capture( argv, &options, buffer, sizeof( buffer));
+   check( "environment: replaced, open returns 0", n >= 0);
+#ifndef _WIN32
+   check( "environment: replaced",
+          ! strcmp( buffer, "MULLE_SPAWN_MARKER=<unset>\n"
+                            "MULLE_SPAWN_TEST=replaced\n"));
+   smoke_show_lines( "environment: replaced", buffer);
+#else
+   check( "environment: replaced ends the inheritance",
+          strstr( buffer, "MULLE_SPAWN_MARKER=<unset>") != NULL);
+   printf( "     environment: replaced: the contents are judged on POSIX only\n");
+#endif
+
+   /* an empty environment is empty, and not the parent's */
+   options.env = emptied;
+
+   memset( buffer, 0, sizeof( buffer));
+   n = smoke_capture( argv, &options, buffer, sizeof( buffer));
+   check( "environment: emptied, open returns 0", n >= 0);
+#ifndef _WIN32
+   check( "environment: emptied",
+          ! strcmp( buffer, "MULLE_SPAWN_MARKER=<unset>\n"
+                            "MULLE_SPAWN_TEST=<unset>\n"));
+   smoke_show_lines( "environment: emptied", buffer);
+#else
+   check( "environment: emptied ends the inheritance",
+          strstr( buffer, "MULLE_SPAWN_MARKER=<unset>") != NULL);
+   printf( "     environment: emptied: an empty block, left alone\n");
+#endif
+}
+
+
 int   main( int argc, char **argv)
 {
    /* the child modes have to come first: they are this program too. --segv
@@ -581,6 +766,7 @@ int   main( int argc, char **argv)
    test_handle_banner();
    test_handle_close_kills();
    test_handle_cannot_open();
+   test_environment();
 
    printf( "\n%s (%d failures)\n", failures ? "FAILED" : "all mulle-spawn tests passed",
            failures);

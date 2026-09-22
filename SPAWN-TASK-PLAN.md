@@ -4,18 +4,20 @@ The plan for deleting the process-spawning half of `NSTask` and putting it in
 `mulle-spawn`, where it is one implementation per platform instead of two
 per-platform implementations that do not know about each other.
 
-Written 2026-09-22, when `mulle-spawn` had just been taken out of `mulle-core`
-and moved next to the code that uses it.
+Written 2026-09-22, when `mulle-spawn` had just had its own repository and test
+suite made, on top of a tree that still carries it as a constituent.
 
 ## Where this starts
 
-- `mulle-spawn` is no longer a mulle-core constituent: no `src/mulle-spawn`
-  node in `mulle-core/.mulle/etc/sourcetree/config`, no entries in
-  `cmake/reflect/_Sources.cmake` / `_Headers.cmake`, no
-  `# include <mulle-spawn/mulle-spawn.h>` in the umbrella header, and the
-  amalgamated `mulle-core/src/mulle-spawn/` copy is gone. It now lives at
-  `mulle-core-demo/mulle-spawn/`, with its own mulle-sde project and its
-  `test/10-api` suite intact.
+- `mulle-spawn` is at `mulle-core/mulle-spawn/`, *not* in the demo, and it is
+  still a mulle-core constituent: a `src/mulle-spawn` node in
+  `mulle-core/.mulle/etc/sourcetree/config`, entries in
+  `cmake/reflect/_Sources.cmake` / `_Headers.cmake`, a
+  `# include <mulle-spawn/mulle-spawn.h>` in the umbrella header, and a
+  verbatim copy of its sources under `mulle-core/src/mulle-spawn/`. Taking it
+  out of the umbrella was tried and reverted as its own decision; step 0 is
+  where it gets decided properly, and until then **every change to it is a
+  change in two places**, the constituent and the amalgamated copy.
 - The redis harness is the only consumer that exists. It reaches
   `struct mulle_spawn_handle` through the umbrella header today, which is the
   part that has to change.
@@ -117,6 +119,16 @@ a file and to the null device, and a detached child that outlives its handle —
 with `.stdout` goldens on Linux and Windows and a `.darwin` one if it differs.
 `mulle_spawn_run` is *not* touched: the demo uses it, and it is not on this
 plan's critical path.
+
+**Done:** `env`, as `struct mulle_spawn_options` plus
+`mulle_spawn_open_with_options`, with `mulle_spawn_open` left as a wrapper over
+it so no existing caller moved. `NULL` means the parent's environment, a
+non-NULL array means that and nothing else, `{ NULL }` means none. macOS
+replaces it through `_NSGetEnviron()`, Windows through a UTF-16 block for
+`CreateProcessW`; Linux and macOS assert the contents exactly, and Windows
+asserts that handing one over ends the inheritance, because wine drops any
+block (see `probe/`). Still to come in this step: `directory`, the
+`MULLE_SPAWN_DESCRIPTOR` mode, and `mulle_spawn_detach`.
 
 ## Step 2 — interrupt, suspend, resume
 

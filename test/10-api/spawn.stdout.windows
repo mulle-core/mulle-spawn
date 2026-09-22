@@ -55,5 +55,15 @@ ok   close: close returns 0
 ok   close: and calls it terminated
 ok   handle: a program that cannot run is not opened
 ok   handle: and leaves nothing open
+ok   environment: inherited, open returns 0
+ok   environment: inherited
+     environment: inherited: MULLE_SPAWN_MARKER=inherited
+     environment: inherited: MULLE_SPAWN_TEST=<unset>
+ok   environment: replaced, open returns 0
+ok   environment: replaced ends the inheritance
+     environment: replaced: the contents are judged on POSIX only
+ok   environment: emptied, open returns 0
+ok   environment: emptied ends the inheritance
+     environment: emptied: an empty block, left alone
 
 all mulle-spawn tests passed (0 failures)
