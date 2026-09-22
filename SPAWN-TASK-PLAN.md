@@ -226,6 +226,41 @@ verdict, which `terminationReason` can map honestly.
 **Gate:** the Windows category compiles and `NSTask`'s own test runs under
 wine, which would be the first time a Windows `NSTask` captured anything.
 
+### The baseline, measured (`mulle-sde test --platform ... run test/NSTask`)
+
+On Linux the suite is green today: 17 cases pass, 2 Windows-only ones skip. On
+Windows 16 of 17 pass and one crashes — and that one is this step's subject., which is useful because it
+is this step's subject. `current-directory.m` dies with
+`NSInternalInconsistencyException: CreateProcess failed: 267`, and the reason is
+not the launch: **the path the Windows port produces is not a path Win32 can
+use.**
+
+- `NSTemporaryDirectory()` answers `/c/users/nat/Temp/` — the port maps Win32
+  paths through `_stringFromWindowsPath()` into `/c/...` form
+  (`NSPathUtilities+Windows.m:56`), and there is **no inverse converter anywhere
+  in the port**.
+- `NSTask+Windows.m:228-242` hands `_directoryPath` to `lpCurrentDirectory`
+  after turning `/` into `\` and nothing else, so `/c/users/nat/Temp/x` becomes
+  `\c\users\nat\Temp\x`: rooted, but with no drive. `GetFileAttributesW` on
+  that string is `INVALID_FILE_ATTRIBUTES`, and `CreateProcessW` answers 267
+  (ERROR_DIRECTORY).
+- It is not the drive-less *form*: a probe that starts a child with
+  `lpCurrentDirectory` as `\tmp\x` and as `Z:\tmp\x` succeeds with both when the
+  directory is really there. Nor is it wine: `/c/...` is the port's own
+  convention, and `\c\...` is a path neither platform has (on real Windows it
+  would resolve to `<current drive>:\c\users\...`, which is still not the
+  directory that was created).
+
+So this step has one more thing to do than the table below says: the Foundation
+path must be converted back to a native one **once**, at the boundary where it
+becomes what mulle-spawn hands to `CreateProcessW` — and `directory` is not the
+only candidate for the same treatment (`setLaunchPath` gets no conversion
+either; `cmd.exe` resolves through `PATH` and hides it). Whether mulle-spawn
+should grow the converter or the port should own it is a real question, and the
+answer is "the port", because `/c/...` is a Foundation convention and spawn
+takes UTF-8 paths of whatever form the platform uses. That is worth writing
+down before the port starts rather than after the third test crashes.
+
 ## Step 5 — the orchestrator and the leftovers
 
 `mulleDataSystemCallWithArguments:environment:workingDirectory:standardInputData:options:`
