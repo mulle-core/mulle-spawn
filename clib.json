@@ -3,7 +3,7 @@
    "version" : "1.0.0",
    "description" : "Run a program, keep its output, outlive it if need be",
    "keywords" : [],
-   "license" : "UNLICENSED",
+   "license" : "BSD-3-Clause",
    "repo" : "mulle-core/mulle-spawn",
    "src" : [
       "src/generic/include-private.h",

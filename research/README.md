@@ -1,15 +1,21 @@
-# probe
+# research
 
-Not tests, and not built by anything here. This is a question that was answered
-by measurement rather than by reading the documentation, kept because the next
-person to doubt the answer should not have to redo the experiment.
+Not tests, and not built by anything here. A test whose output cannot be
+compared against a golden is still a test: it belongs in the suite, prints to
+`stderr` so a reader can see the numbers, and passes by completing -- that is how
+the benchmarks in other projects here are wired. What separates this directory
+is not the missing golden but the subject: a question whose answer is about the
+platform rather than about this code, that does not change when the code does,
+and that nobody needs re-run on every craft. Reading the documentation does not
+settle it, so it is answered by running something once, and kept so the next
+person to doubt the answer does not have to redo the experiment.
 
 ## `env-block-probe.c` — does the platform honour `lpEnvironment`?
 
 `mulle_spawn_open_with_options` hands `CreateProcessW` an environment block, and
 a child launched with one reported an *empty* environment -- the same as being
-handed no environment at all. This splits "the block is wrong" from "the
-emulator cannot carry it":
+handed no environment at all. This splits the two halves of it -- the
+block's contents, and the flag that says how to read them:
 
 1. it builds a block the way `mulle-spawn-windows.c` does and prints it, code
    point by code point, so the block can be read rather than assumed;
@@ -20,20 +26,28 @@ Measured under wine:
 
 | handed to `CreateProcessW` | what the child saw |
 |---|---|
-| the block mulle-spawn builds | nothing |
-| `NULL` | the parent's environment, as expected |
-| `GetEnvironmentStringsW()` unchanged | **nothing** |
+| the block as `mulle-spawn-windows.c` built it | nothing: marker `<unset>`, `MULLE_SPAWN_TEST=<unset>`, `PATH` `<unset>` |
+| the same block, with `CREATE_UNICODE_ENVIRONMENT` | **the block**: `MULLE_SPAWN_TEST=replaced`, marker `<unset>`, `PATH` `<unset>` |
+| `NULL` | the parent's environment: marker `inherited`, `PATH` set |
+| `GetEnvironmentStringsW()`, with the flag | the parent's environment unchanged (`0047 0049 0054` = `GIT…`) |
 
-The block is well formed — `004d 0055 … 0064 0000`, i.e. `NAME=VALUE\0\0` — and
-the third row is what makes the answer unambiguous: if the platform's own block,
-handed back untouched, also produces a child that sees nothing, then nothing
-about the format can be the problem. **wine ignores `lpEnvironment` for any
-non-NULL block**, so this cannot be verified here and needs a real Windows.
+The block is well formed — `004d 0055 … 0064 0000`, i.e. `NAME=VALUE\0\0` — so
+the first row is not about its contents: a UTF-16 block announced as ANSI does
+not parse, and a block that does not parse is no environment at all. The second
+row is the answer, and it retires what this file used to say: **wine does not
+ignore `lpEnvironment`; `mulle-spawn` left out `CREATE_UNICODE_ENVIRONMENT`.**
+The fourth row is the control, and it is what made the first reading look
+conclusive — the platform's own block, handed back *without* the flag, fails in
+exactly the same way.
 
-What follows for the test: `test/10-api/spawn.c` asserts what a replaced
-environment *does* show under wine — that handing one over ends the inheritance
-and the parent's marker goes with it — and leaves the block's contents judged on
-POSIX, where they are judged exactly.
+What follows for the test: `test/10-api/spawn.c` judges the contents of a *given*
+environment exactly, on every platform. On Windows that costs one entry. A child
+inherits its loader search path through its `PATH`, and the child there is the
+test program itself, which links the library -- so the two given environments
+carry the parent's `PATH`, and `emptied` is "empty except for the loader path"
+on that platform. Carrying `WINEPATH` instead does nothing for an import, which
+was measured too: the two cases kept dying in the loader with `import_dll Library
+libmulle-spawn.dll ... not found`, and stopped the moment the entry was `PATH`.
 
     cc=/opt/mulle-clang-project-windows/latest/bin/x86_64-w64-mingw32-clang
     $cc -std=gnu11 -o env-block-probe.exe env-block-probe.c

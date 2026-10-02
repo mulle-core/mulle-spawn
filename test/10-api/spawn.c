@@ -23,6 +23,7 @@
  *   ./spawn > spawn.stdout
  */
 #include <mulle-spawn/mulle-spawn.h>
+#include <mulle-fprintf/mulle-fprintf.h>
 
 #include <errno.h>
 #include <stdio.h>
@@ -110,7 +111,7 @@ static char   *smoke_basename( char *path)
 
 static void   check( const char *what, int ok)
 {
-   printf( "%-4s %s\n", ok ? "ok" : "FAIL", what);
+   mulle_printf( "%-4s %s\n", ok ? "ok" : "FAIL", what);
    if( ! ok)
       failures++;
 }
@@ -118,9 +119,9 @@ static void   check( const char *what, int ok)
 
 static void   show( const char *label, struct mulle_spawn_result *r)
 {
-   printf( "     %s: status=%d exit=%d signal=%d length=%zu output=<%s>\n",
-           label, r->status, r->exit_code, r->signal_number, r->length,
-           r->output ? r->output : "");
+   mulle_printf( "     %s: status=%d exit=%d signal=%d length=%zu output=<%s>\n",
+                 label, r->status, r->exit_code, r->signal_number, r->length,
+                 r->output ? r->output : "");
 }
 
 
@@ -165,7 +166,7 @@ static void   print_variable( const char *name)
    char   *value;
 
    value = getenv( name);
-   printf( "%s=%s\n", name, value ? value : "<unset>");
+   mulle_printf( "%s=%s\n", name, value ? value : "<unset>");
 }
 
 
@@ -198,10 +199,10 @@ static void   smoke_show_lines( const char *label, const char *text)
       nl = strchr( p, '\n');
       if( ! nl)
       {
-         printf( "     %s: %s\n", label, p);
+         mulle_printf( "     %s: %s\n", label, p);
          break;
       }
-      printf( "     %s: %.*s\n", label, (int) (nl - p), p);
+      mulle_printf( "     %s: %.*s\n", label, (int) (nl - p), p);
    }
 }
 
@@ -326,7 +327,7 @@ static int   child_main( int argc, char **argv)
       /* answers what it is given, line by line, until its stdin closes */
       while( fgets( line, sizeof( line), stdin))
       {
-         printf( "got %s", line);
+         mulle_printf( "got %s", line);
          fflush( stdout);
       }
       return( 0);
@@ -335,21 +336,21 @@ static int   child_main( int argc, char **argv)
    if( argc >= 3 && ! strcmp( argv[ 1], "--banner"))
    {
       /* says where it is, then keeps running: the server pattern */
-      fprintf( stderr, "listening on 127.0.0.1:%s\n", argv[ 2]);
-      fflush( stderr);
+      mulle_fprintf( stderr, "listening on 127.0.0.1:%s\n", argv[ 2]);
+      mulle_fflush( stderr);
       mulle_relativetime_sleep( 30);
       return( 0);
    }
 
    if( argc >= 3 && ! strcmp( argv[ 1], "--child"))
    {
-      printf( "child says %s", argv[ 2]);
+      mulle_printf( "child says %s", argv[ 2]);
       return( 0);
    }
 
    if( argc >= 3 && ! strcmp( argv[ 1], "--echo"))
    {
-      printf( "%s\n", argv[ 2]);
+      mulle_printf( "%s\n", argv[ 2]);
       return( 0);
    }
 
@@ -374,13 +375,13 @@ static int   child_main( int argc, char **argv)
          return( 1);
 
       /* the tail, not the path: a path is a machine's layout, not a fact */
-      printf( "cwd=%s\n", smoke_basename( buffer));
+      mulle_printf( "cwd=%s\n", smoke_basename( buffer));
       return( 0);
    }
 
    if( argc >= 3 && ! strcmp( argv[ 1], "--stall"))
    {
-      printf( "out\n");
+      mulle_printf( "out\n");
       fflush( stdout);
       mulle_relativetime_sleep( atoi( argv[ 2]));
       return( 0);
@@ -416,7 +417,7 @@ static int   child_main( int argc, char **argv)
 
       for( i = 0; i < count; i++)
       {
-         printf( "tick\n");
+         mulle_printf( "tick\n");
          fflush( stdout);
          mulle_relativetime_sleep( 0.1);
       }
@@ -481,7 +482,7 @@ static void   test_timeout( void)
    check( "timeout: the deadline is enforced", elapsed < 3.0);
    check( "timeout: output survives the kill", r.output && ! strcmp( r.output, "out\n"));
    if( verbose)
-      printf( "     deadline fired after %.2fs\n", elapsed);
+      mulle_printf( "     deadline fired after %.2fs\n", elapsed);
    show( "timeout", &r);
    mulle_spawn_result_done( &r);
 }
@@ -554,7 +555,7 @@ static void   test_signal( void)
    show( "signal", &r);
    mulle_spawn_result_done( &r);
 #else
-   printf( "skip no POSIX signal_number on this platform\n");
+   mulle_printf( "skip no POSIX signal_number on this platform\n");
 #endif
 }
 
@@ -617,7 +618,7 @@ static void   test_handle_filter( void)
    n = smoke_read_up_to( h.out, buffer, 9);
    check( "handle: and the answer comes back",
           n == 9 && ! strcmp( buffer, "got ping\n"));
-   printf( "     handle: the child said <%s>\n", buffer);
+   mulle_printf( "     handle: the child said <%s>\n", buffer);
 
    /*
     * Closing our end of its stdin is how a filter is told there is no more.
@@ -666,7 +667,7 @@ static void   test_handle_banner( void)
    n = smoke_read_up_to( h.err, buffer, 28);
    check( "banner: it announced itself",
           n == 28 && ! strcmp( buffer, "listening on 127.0.0.1:6379\n"));
-   printf( "     banner: <%s>\n", buffer);
+   mulle_printf( "     banner: <%s>\n", buffer);
 
    /* the whole point: the banner arrived while the child is still there */
    check( "banner: it is still running", mulle_spawn_wait( &h, 0.0, NULL) == 0);
@@ -677,7 +678,7 @@ static void   test_handle_banner( void)
    /* there is no SIGTERM to send here, so on POSIX that is what it is */
    check( "banner: stopped by SIGTERM",
           r.status == mulle_spawn_signalled && r.signal_number == 15);
-   printf( "     banner: status=%d signal=%d\n", r.status, r.signal_number);
+   mulle_printf( "     banner: status=%d signal=%d\n", r.status, r.signal_number);
 #else
    /*
     * TerminateProcess, which used to be reported as "exited, 1" -- the same
@@ -686,7 +687,7 @@ static void   test_handle_banner( void)
     */
    check( "banner: stopped by TerminateProcess",
           r.status == mulle_spawn_terminated);
-   printf( "     banner: status=%d exit=%d\n", r.status, r.exit_code);
+   mulle_printf( "     banner: status=%d exit=%d\n", r.status, r.exit_code);
 #endif
 
    check( "banner: close returns 0", mulle_spawn_close( &h, NULL) == 0);
@@ -816,8 +817,8 @@ static void   smoke_rmdir_when_released( const char *path)
       mulle_relativetime_sleep( 0.025);
    }
 
-   fprintf( stderr, "smoke: could not remove <%s>, errno %d -- a leftover\n",
-            path, errno);
+   mulle_fprintf( stderr, "smoke: could not remove <%s>, errno %d -- a leftover\n",
+                  path, errno);
 }
 
 
@@ -1263,22 +1264,31 @@ static void   test_interrupt_suspend( void)
  * The child is named by its absolute path throughout, so that none of this
  * depends on `PATH` surviving into the environment it is given.
  *
- * What a *given* environment contains is judged on POSIX only. On Windows the
- * only platform this can be run on is wine, and wine ignores CreateProcessW's
- * `lpEnvironment` outright: a child launched with a block of any kind sees an
- * empty environment -- Windows' own GetEnvironmentStringsW() handed straight
- * back included, which is what makes it the emulator rather than the block.
- * `probe/env-block-probe.c` is that measurement. So on Windows the record says
- * what the platform can honestly show: an environment that is handed over ends
- * the inheritance, and the parent's marker goes with it.
+ * All three are judged the same way on every platform, and on Windows that
+ * takes one allowance: the child is this program, which links the library, and
+ * a child inherits the loader's search path through its `PATH`. So the two
+ * environments that are *given* carry the parent's `PATH`, or the child is
+ * stopped by the loader before it can answer either question. That is the
+ * platform's way of carrying a search path and not part of what is being asked
+ * about. `research/env-block-probe.c` is the measurement that the block itself is
+ * honoured, once it is announced as the UTF-16 block it is -- the earlier
+ * reading that wine ignores `lpEnvironment` was that missing announcement.
  */
 static void   test_environment( void)
 {
    struct mulle_spawn_options  options;
    char                        buffer[ 256];
    char                        *argv[ 5];
-   char                        *emptied[ 1];
-   char                        *replacement[ 2];
+   /*
+    * Three and two rather than one and one, because on Windows the loader path
+    * takes the second slot of each -- see below. The extra slot is NULL there
+    * and everywhere else, which is what terminates the array anyway.
+    */
+   char                        *emptied[ 3];
+   char                        *replacement[ 3];
+#ifdef _WIN32
+   char                        loader[ 2048];
+#endif
    int                         n;
 
    set_marker();
@@ -1291,8 +1301,41 @@ static void   test_environment( void)
 
    replacement[ 0] = "MULLE_SPAWN_TEST=replaced";
    replacement[ 1] = NULL;
+   replacement[ 2] = NULL;
 
    emptied[ 0] = NULL;
+   emptied[ 1] = NULL;
+   emptied[ 2] = NULL;
+
+#ifdef _WIN32
+   /*
+    * The one entry of the parent's that a given environment has to keep: the
+    * loader finds an imported DLL through the child's `PATH` (that is why the
+    * test framework prepends the dependency's `bin` to `PATH`, and to `WINEPATH`
+    * for the exe it names itself), and this child links the library. Hand it an
+    * environment without that and it never reaches its own `main` -- the loader
+    * stops it, so there is nothing left to ask about the environment it was
+    * handed. Which is why `emptied` is "empty except for the loader path" here
+    * and empty outright on POSIX.
+    *
+    * Only when the parent has one: run by hand without a `PATH`, the loader
+    * finds the DLLs another way and both environments are handed over exactly
+    * as written above.
+    */
+   {
+      char   *path;
+
+      path = getenv( "PATH");
+      if( path && strlen( path) + sizeof( "PATH=") < sizeof( loader))
+      {
+         strcpy( loader, "PATH=");
+         strcat( loader, path);
+
+         replacement[ 1] = loader;
+         emptied[ 0]     = loader;
+      }
+   }
+#endif
 
    mulle_spawn_options_init( &options);
    options.out_mode = MULLE_SPAWN_PIPE;
@@ -1312,16 +1355,10 @@ static void   test_environment( void)
    memset( buffer, 0, sizeof( buffer));
    n = smoke_capture( argv, &options, buffer, sizeof( buffer));
    check( "environment: replaced, open returns 0", n >= 0);
-#ifndef _WIN32
    check( "environment: replaced",
           ! strcmp( buffer, "MULLE_SPAWN_MARKER=<unset>\n"
                             "MULLE_SPAWN_TEST=replaced\n"));
    smoke_show_lines( "environment: replaced", buffer);
-#else
-   check( "environment: replaced ends the inheritance",
-          strstr( buffer, "MULLE_SPAWN_MARKER=<unset>") != NULL);
-   printf( "     environment: replaced: the contents are judged on POSIX only\n");
-#endif
 
    /* an empty environment is empty, and not the parent's */
    options.env = emptied;
@@ -1329,16 +1366,10 @@ static void   test_environment( void)
    memset( buffer, 0, sizeof( buffer));
    n = smoke_capture( argv, &options, buffer, sizeof( buffer));
    check( "environment: emptied, open returns 0", n >= 0);
-#ifndef _WIN32
    check( "environment: emptied",
           ! strcmp( buffer, "MULLE_SPAWN_MARKER=<unset>\n"
                             "MULLE_SPAWN_TEST=<unset>\n"));
    smoke_show_lines( "environment: emptied", buffer);
-#else
-   check( "environment: emptied ends the inheritance",
-          strstr( buffer, "MULLE_SPAWN_MARKER=<unset>") != NULL);
-   printf( "     environment: emptied: an empty block, left alone\n");
-#endif
 }
 
 
@@ -1376,7 +1407,7 @@ int   main( int argc, char **argv)
           self_found &&
           ! strcmp( smoke_basename( self_path), smoke_basename( argv[ 0])));
    if( verbose)
-      printf( "     self path: %s\n", self_path);
+      mulle_printf( "     self path: %s\n", self_path);
 
    if( ! self_found)
       return( 1);
@@ -1398,7 +1429,7 @@ int   main( int argc, char **argv)
    test_detach();
    test_interrupt_suspend();
 
-   printf( "\n%s (%d failures)\n", failures ? "FAILED" : "all mulle-spawn tests passed",
-           failures);
+   mulle_printf( "\n%s (%d failures)\n", failures ? "FAILED" : "all mulle-spawn tests passed",
+                 failures);
    return( failures ? 1 : 0);
 }

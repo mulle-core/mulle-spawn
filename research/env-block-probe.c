@@ -11,10 +11,11 @@
  *   x86_64-w64-mingw32-clang -o env-block-probe.exe env-block-probe.c
  *   wine env-block-probe.exe
  *
- * Not a test, and not built by anything: it is here because the answer is a
- * platform behaviour rather than a bug in the code above it, and the next
- * person to doubt the environment block should not have to rediscover which
- * half is which.
+ * Not a test, and not built by anything: it is here because the answer turned
+ * out to be a missing flag rather than a platform behaviour -- and because the
+ * first reading of it, without that flag, looked conclusive and was wrong. The
+ * next person to doubt the environment block should not have to rediscover
+ * which half is which.
  */
 #include <windows.h>
 
@@ -81,7 +82,7 @@ static wchar_t   *build_block( char * const *env, size_t *capacity_out)
 }
 
 
-static int   run_child( const char *self, void *environment)
+static int   run_child( const char *self, void *environment, DWORD flags)
 {
    PROCESS_INFORMATION   pi = { 0 };
    STARTUPINFOW          si = { 0 };
@@ -105,7 +106,7 @@ static int   run_child( const char *self, void *environment)
 
    si.cb = sizeof( si);
 
-   if( ! CreateProcessW( NULL, cmd, NULL, NULL, TRUE, 0, environment, NULL, &si, &pi))
+   if( ! CreateProcessW( NULL, cmd, NULL, NULL, TRUE, flags, environment, NULL, &si, &pi))
    {
       error = GetLastError();
       printf( "CreateProcessW failed: %lu\n", (unsigned long) error);
@@ -131,10 +132,20 @@ int   main( int argc, char **argv)
    {
       value = getenv( "MULLE_SPAWN_TEST");
       printf( "child: MULLE_SPAWN_TEST=%s\n", value ? value : "<unset>");
+      value = getenv( "MULLE_SPAWN_MARKER");
+      printf( "child: MULLE_SPAWN_MARKER=%s\n", value ? value : "<unset>");
       value = getenv( "PATH");
       printf( "child: PATH is %s\n", value ? "set" : "<unset>");
+      value = getenv( "WINEPATH");
+      printf( "child: WINEPATH is %s\n", value ? "set" : "<unset>");
       return( 0);
    }
+
+   /*
+    * The marker is what the test in test/10-api asserts about: a parent that
+    * sets it, and a child that must not be able to see it.
+    */
+   SetEnvironmentVariableA( "MULLE_SPAWN_MARKER", "inherited");
 
    env[ 0] = "MULLE_SPAWN_TEST=replaced";
    env[ 1] = NULL;
@@ -157,10 +168,18 @@ int   main( int argc, char **argv)
    printf( "\n" );
 
    printf( "-- one entry, as mulle-spawn builds it --\n" );
-   run_child( argv[ 0], (void *) block);
+   run_child( argv[ 0], (void *) block, 0);
+
+   /*
+    * The same block, announced as the UTF-16 block it is. This is what
+    * mulle_spawn_open_with_options does now, and it is the row that decides
+    * whether the earlier measurement was about the block or about the flag.
+    */
+   printf( "-- the same block, with CREATE_UNICODE_ENVIRONMENT --\n" );
+   run_child( argv[ 0], (void *) block, CREATE_UNICODE_ENVIRONMENT);
 
    printf( "-- NULL, for comparison: the parent's environment --\n" );
-   run_child( argv[ 0], NULL);
+   run_child( argv[ 0], NULL, 0);
 
    /*
     * The decisive one. The parent's own block is by definition what this
@@ -176,7 +195,7 @@ int   main( int argc, char **argv)
       printf( "     it starts %04x %04x %04x (%lu wchars)\n",
               (unsigned) parent[ 0], (unsigned) parent[ 1],
               (unsigned) parent[ 2], (unsigned long) wcslen( parent));
-      run_child( argv[ 0], (void *) parent);
+      run_child( argv[ 0], (void *) parent, CREATE_UNICODE_ENVIRONMENT);
       FreeEnvironmentStringsW( parent);
    }
 

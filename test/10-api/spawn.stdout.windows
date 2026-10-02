@@ -60,11 +60,13 @@ ok   environment: inherited
      environment: inherited: MULLE_SPAWN_MARKER=inherited
      environment: inherited: MULLE_SPAWN_TEST=<unset>
 ok   environment: replaced, open returns 0
-ok   environment: replaced ends the inheritance
-     environment: replaced: the contents are judged on POSIX only
+ok   environment: replaced
+     environment: replaced: MULLE_SPAWN_MARKER=<unset>
+     environment: replaced: MULLE_SPAWN_TEST=replaced
 ok   environment: emptied, open returns 0
-ok   environment: emptied ends the inheritance
-     environment: emptied: an empty block, left alone
+ok   environment: emptied
+     environment: emptied: MULLE_SPAWN_MARKER=<unset>
+     environment: emptied: MULLE_SPAWN_TEST=<unset>
 ok   directory: open returns 0
 ok   directory: it ran there
      directory: cwd=spawn-cwd

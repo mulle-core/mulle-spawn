@@ -1,0 +1,2 @@
+mulle-spawn;${MULLE__SPAWN_NODETYPE:-tar};;83639BC1-DB7B-435D-A4DB-89AB3DCA0A36;${MULLE__SPAWN_URL:-https://github.com/nat/mulle-spawn/archive/${MULLE_TAG}.tar.gz};${MULLE__SPAWN_BRANCH};${MULLE__SPAWN_TAG:-latest};;
+mulle-fprintf;${MULLE__FPRINTF_NODETYPE:-tar};no-all-load,no-cmake-loader,no-cmake-searchpath,no-import;2B1E5000-BAD3-4C9B-8CC6-76317CE743AC;${MULLE__FPRINTF_URL:-https://github.com/mulle-core/mulle-fprintf/archive/${MULLE_TAG}.tar.gz};${MULLE__FPRINTF_BRANCH};${MULLE__FPRINTF_TAG:-latest};;
