@@ -1,1 +1,1 @@
-mulle-spawn;${MULLE__SPAWN_NODETYPE:-tar};;83639BC1-DB7B-435D-A4DB-89AB3DCA0A36;${MULLE__SPAWN_URL:-https://github.com/nat/mulle-spawn/archive/${MULLE_TAG}.tar.gz};${MULLE__SPAWN_BRANCH};${MULLE__SPAWN_TAG:-latest};;
+mulle-spawn;${MULLE__SPAWN_NODETYPE:-tar};;706120C1-5C1F-41FF-8064-74D08458EB40;${MULLE__SPAWN_URL:-https://github.com/nat/mulle-spawn/archive/${MULLE_TAG}.tar.gz};${MULLE__SPAWN_BRANCH};${MULLE__SPAWN_TAG:-latest};;
