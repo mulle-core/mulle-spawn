@@ -1,0 +1,13 @@
+The two calls are the same spawn minus the waiting, which is the whole
+difference between them:
+
+| | `mulle_spawn_run` | `mulle_spawn_open` |
+|---|---|---|
+| comes back | when the child is done, or its deadline passed | as soon as the child runs |
+| `stdout` | captured into a buffer for you | a descriptor, for you to read |
+| what you hold | a fate: exit code, output | a handle: descriptors and a pid |
+| ends with | nothing to clean up but the buffer | `terminate`/`close`, which reap |
+
+It is not a shell. There is no globbing, no redirection and no `PATH` search
+beyond what the platform does for you: `argv` is passed through as the words you
+gave, which is all a program needs and all it should assume.

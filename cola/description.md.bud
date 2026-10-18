@@ -1,0 +1,10 @@
+The two cross-platform calls for getting a second process, without `fork()`,
+without `system()` and without a shell: one that **runs a program** and hands you
+what it printed under a deadline, and one that **starts a program and keeps it**,
+so you can talk to it and stop it when you are done.
+
+mulle-spawn exists because `fork()` is the one thing you cannot abstract over a
+Windows and a POSIX build, and because the interesting cases are not "run a
+program" but "run a program that may never come back". `CreateProcess` on
+Windows and `fork`/`execvp` on POSIX are the two implementations; the API above
+them is the same on both, down to which byte reaches you.

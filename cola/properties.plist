@@ -1,0 +1,41 @@
+{
+   project =
+   {
+      description="🛸 Run a program, keep its output, outlive it if need be";
+      domain="github";
+      language="c";
+      dialect="c";
+      name="mulle-spawn";
+      user="mulle-core";
+      repo="mulle-spawn";
+      homepage="https://github.com/mulle-core/mulle-spawn";
+      license="BSD-3-Clause";
+   };
+   dependencies =
+   (
+      {
+         description="🔀 Cross-platform C compiler glue (and some cpp conveniences)";
+         domain="github";
+         name="mulle-c11";
+         repo="mulle-c11";
+         url="https://github.com/mulle-c/mulle-c11";
+         user="mulle-c";
+      },
+      {
+         description="🔄 Flexible C memory allocation scheme";
+         domain="github";
+         name="mulle-allocator";
+         repo="mulle-allocator";
+         url="https://github.com/mulle-c/mulle-allocator";
+         user="mulle-c";
+      },
+      {
+         description="🕕 Simple time types with arithmetic on timespec and timeval";
+         domain="github";
+         name="mulle-time";
+         repo="mulle-time";
+         url="https://github.com/mulle-core/mulle-time";
+         user="mulle-core";
+      }
+   );
+}

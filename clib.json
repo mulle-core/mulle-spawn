@@ -1,7 +1,7 @@
 {
    "name" : "mulle-spawn",
    "version" : "1.0.0",
-   "description" : "Run a program, keep its output, outlive it if need be",
+   "description" : "🛸 Run a program, keep its output, outlive it if need be",
    "keywords" : [],
    "license" : "BSD-3-Clause",
    "repo" : "mulle-core/mulle-spawn",

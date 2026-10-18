@@ -25,6 +25,33 @@ SET( RESOLVE_INSTALLABLE_HEADER_SYMLINKS OFF CACHE BOOL "Copy headers as files")
 
 set( MULLE_PROJECT_TYPE "Library")
 
+#
+# The library advertises C11 (see the "std" badge) and XSI/X-Open (see the
+# "apis: xopen/windows" badge, which is where realpath and PATH_MAX live).
+# Compile it as C11 with extensions off and ask for exactly that namespace:
+# _XOPEN_SOURCE=700 gives POSIX.1-2008 plus XSI and hides GNU extensions, so
+# anything beyond the badge is a compile error rather than a silent ratchet.
+#
+#
+# On Apple, _DARWIN_C_SOURCE is the counterpart of glibc's _DEFAULT_SOURCE:
+# strict C mode hides the POSIX and BSD declarations there, including the
+# SO_NOSIGPIPE socket option this library sets on macOS.
+#
+# A standard given on the command line wins, so other dialects remain testable
+# with e.g. -DCMAKE_C_STANDARD=23 or CFLAGS=-std=c23.
+#
+if( NOT CMAKE_C_STANDARD
+    AND NOT CMAKE_C_FLAGS MATCHES "(^| )-std="
+    AND NOT "$ENV{CFLAGS}" MATCHES "(^| )-std=")
+   set( CMAKE_C_STANDARD 11)
+   set( CMAKE_C_EXTENSIONS OFF)
+   if( APPLE)
+      add_compile_definitions( _DARWIN_C_SOURCE)
+   elseif( NOT WIN32)
+      add_compile_definitions( _XOPEN_SOURCE=700)
+   endif()
+endif()
+
 ### mulle-sde environment
 
 set( MULLE_SDE_REFLECT_DIR "reflect")

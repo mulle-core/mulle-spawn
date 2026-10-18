@@ -28,9 +28,9 @@ beyond what the platform does for you: `argv` is passed through as the words you
 gave, which is all a program needs and all it should assume.
 
 
-| Release Version                                       | AI Documentation
-|-------------------------------------------------------|------------------
-| ![Mulle kybernetiK tag](https://img.shields.io/github/tag/mulle-core/mulle-spawn.svg) | [DeepWiki for mulle-spawn](https://deepwiki.com/mulle-core/mulle-spawn)
+| Release Version                                       | Release Notes  | AI Documentation
+|-------------------------------------------------------|----------------|---------------
+| ![Mulle kybernetiK tag](https://img.shields.io/github/tag/mulle-core/mulle-spawn.svg) ![standard: C11](pix/c11.svg) ![apis: xopen/windows](pix/apis-xopen-windows.svg) ![memory: allocator](pix/memory-allocator.svg) ![threads: threadsafe](pix/thread-threadsafe.svg) [![Build Status](https://github.com/mulle-core/mulle-spawn/workflows/CI/badge.svg)](//github.com/mulle-core/mulle-spawn/actions) | [RELEASENOTES](RELEASENOTES.md) | [DeepWiki for mulle-spawn](https://deepwiki.com/mulle-core/mulle-spawn)
 
 
 ## API Guide
@@ -334,30 +334,39 @@ the platform actually knows.
 * [API Summary](asset/dox/api/toc)
 
 
+
+
 ### You are here
 
 ![Overview](overview.dot.svg)
 
 
+
+
+
 ## Add
 
-mulle-spawn is a component of the [mulle-core](//github.com/mulle-core/mulle-core)
-library. So in your code include the mulle-core umbrella header:
+mulle-spawn is a component of the [mulle-core](//github.com/mulle-core/mulle-core) library. So in your code include the mulle-core umbrella header:
 
 ``` c
 #include <mulle-core/mulle-core.h>
 ```
 
-### Add mulle-core to a cmake and git project
+### Add mulle-core to a cmake project
 
-``` bash
-git submodule add https://github.com/mulle-core/mulle-core.git mulle-core
-```
-
-Add this to your `CMakeLists.txt`:
+Add mulle-core to your `CMakeLists.txt` with
+[FetchContent](https://cmake.org/cmake/help/latest/module/FetchContent.html):
 
 ``` cmake
-add_subdirectory( mulle-core)
+include( FetchContent)
+
+set( MULLE__CORE_TAG "master" CACHE STRING "branch or tag to fetch mulle-core from")
+
+FetchContent_Declare( MULLE__CORE
+   GIT_REPOSITORY https://github.com/mulle-core/mulle-core.git
+   GIT_TAG        "${MULLE__CORE_TAG}")
+FetchContent_MakeAvailable( MULLE__CORE)
+
 target_link_libraries( ${PROJECT_NAME} PRIVATE mulle-core)
 ```
 
@@ -377,7 +386,6 @@ clib install --out src mulle-core/mulle-spawn
 Append `src` to your include path (e.g. add `-isystem src`  to your `CFLAGS`)
 and compile all the sources that were downloaded.
 
-
 ## Install
 
 Use [mulle-sde](//github.com/mulle-sde) to build and install mulle-spawn and all dependencies:
@@ -387,15 +395,15 @@ mulle-sde install --prefix /usr/local \
    https://github.com/mulle-core/mulle-spawn/archive/latest.tar.gz
 ```
 
-### Legacy Installation
+### Manual Installation
 
 Install the requirements:
 
 | Requirements                                 | Description
 |----------------------------------------------|-----------------------
+| [mulle-c11](https://github.com/mulle-c/mulle-c11)             | 🔀 Cross-platform C compiler glue (and some cpp conveniences)
 | [mulle-allocator](https://github.com/mulle-c/mulle-allocator)             | 🔄 Flexible C memory allocation scheme
-| [mulle-c11](https://github.com/mulle-c/mulle-c11)             | 🍰 Useful C11 macros for mulle projects
-| [mulle-time](https://github.com/mulle-core/mulle-time)             | 🕰 Time handling
+| [mulle-time](https://github.com/mulle-core/mulle-time)             | 🕕 Simple time types with arithmetic on timespec and timeval
 
 Download the latest [tar](https://github.com/mulle-core/mulle-spawn/archive/refs/tags/latest.tar.gz) or [zip](https://github.com/mulle-core/mulle-spawn/archive/refs/tags/latest.zip) archive and unpack it.
 
@@ -415,4 +423,7 @@ cmake --install build --config Release
 
 ## Author
 
-[Nat!](https://mulle-kybernetik.com/weblog) for Mulle kybernetiK
+[Nat!](https://mulle-kybernetik.com/weblog) for Mulle kybernetiK  
+
+
+
